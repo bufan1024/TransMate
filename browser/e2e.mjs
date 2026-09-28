@@ -1,23 +1,48 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
 const extensionDir = fileURLToPath(new URL('../', import.meta.url));
 const chromiumExecutable = process.env.TRANSMATE_CHROMIUM_EXECUTABLE;
+const fixturePage = `<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>TransMate inline fixture</title>
+<style>body { margin: 32px; font: 18px sans-serif; } p { margin: 20px 0; }</style>
+<p id="inline-first">inline hello</p>
+<p id="inline-slow">inline slow</p>
+<p id="inline-latest">inline latest</p>
+<p id="inline-close-slow">inline close slow</p>
+</html>`;
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  return { promise, resolve };
+}
 
 const requests = [];
 let retryAttempts = 0;
 let releaseSlowResponse;
 let finishSlowResponse;
 const slowResponseFinished = new Promise((resolve) => { finishSlowResponse = resolve; });
+const delayedInlineResponses = new Map([
+  ['inline slow', { gate: deferred(), finished: deferred() }],
+  ['inline close slow', { gate: deferred(), finished: deferred() }],
+]);
 const server = createServer(async (request, response) => {
   response.setHeader('Access-Control-Allow-Origin', '*');
   response.setHeader('Access-Control-Allow-Headers', 'authorization,content-type');
   response.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  if (request.method === 'GET' && request.url === '/inline-fixture') {
+    response.setHeader('Content-Type', 'text/html; charset=utf-8');
+    response.writeHead(200).end(fixturePage);
+    return;
+  }
   if (request.method === 'OPTIONS') {
     response.writeHead(204).end();
     return;
@@ -46,16 +71,23 @@ const server = createServer(async (request, response) => {
     'retry me': '重试成功',
     'window A selection': '窗口 A 译文',
     'window B selection': '窗口 B 译文',
+    'inline hello': '页内译文',
+    'inline slow': '过期页内译文',
+    'inline latest': '最新页内译文',
+    'inline close slow': '关闭后不应显示的译文',
   };
   if (text === 'slow cancel') {
     await new Promise((resolve) => { releaseSlowResponse = resolve; });
   }
+  const delayedInline = delayedInlineResponses.get(text);
+  if (delayedInline) await delayedInline.gate.promise;
   if (!response.destroyed) {
     response.writeHead(200).end(JSON.stringify({
       choices: [{ message: { content: translations[text] || '默认译文' } }],
     }));
   }
   if (text === 'slow cancel') finishSlowResponse();
+  delayedInline?.finished.resolve();
 });
 
 async function waitUntil(predicate, description, timeoutMs = 5000) {
@@ -66,7 +98,60 @@ async function waitUntil(predicate, description, timeoutMs = 5000) {
   }
 }
 
-const profileDir = await mkdtemp(join(tmpdir(), 'transmate-pr6-'));
+async function selectFixtureText(page, elementId) {
+  return page.evaluate((id) => {
+    const element = document.getElementById(id);
+    if (!element) throw new Error('缺少选文测试元素：' + id);
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return selection.toString();
+  }, elementId);
+}
+
+async function triggerContextSelection(worker, tabId, text) {
+  return worker.evaluate(async ({ tabId: selectedTabId, selectedText }) => {
+    const backgroundRouter = globalThis.__transmateTestRouter;
+    if (!backgroundRouter?.onClicked) throw new Error('背景事件路由未导出');
+    const tab = await chrome.tabs.get(selectedTabId);
+    backgroundRouter.onClicked({
+      menuItemId: 'translate-selection',
+      selectionText: selectedText,
+    }, tab);
+    return true;
+  }, { tabId, selectedText: text });
+}
+
+const tempDir = await mkdtemp(join(tmpdir(), 'transmate-inline-'));
+const profileDir = join(tempDir, 'profile');
+const testExtensionDir = join(tempDir, 'extension');
+const excludedExtensionDirs = new Set(['.git', '.codex', '.claude', '.agents', 'browser', 'node_modules', 'tests']);
+await cp(extensionDir, testExtensionDir, {
+  recursive: true,
+  filter: (source) => !excludedExtensionDirs.has(relative(extensionDir, source).split(sep)[0]),
+});
+const testManifestPath = join(testExtensionDir, 'manifest.json');
+const testManifest = JSON.parse(await readFile(testManifestPath, 'utf8'));
+testManifest.host_permissions = [...new Set([
+  ...(testManifest.host_permissions || []),
+  'http://127.0.0.1/*',
+])];
+await writeFile(testManifestPath, JSON.stringify(testManifest));
+// A service worker cannot import() a module from evaluate(). Expose the
+// production router only in this throwaway extension copy for menu simulation.
+const testBackgroundPath = join(testExtensionDir, 'background.js');
+await writeFile(testBackgroundPath,
+  `${await readFile(testBackgroundPath, 'utf8')}\n` +
+  `globalThis.__transmateTestRouter = backgroundRouter;
+globalThis.__transmateTestSidePanelOpens = 0;
+const __transmateOriginalSidePanelOpen = chrome.sidePanel.open.bind(chrome.sidePanel);
+chrome.sidePanel.open = (...args) => {
+  globalThis.__transmateTestSidePanelOpens += 1;
+  return __transmateOriginalSidePanelOpen(...args);
+};
+`);
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const endpoint = 'http://127.0.0.1:' + server.address().port + '/v1/chat/completions';
 let context;
@@ -75,8 +160,8 @@ try {
   const browserOptions = {
     headless: true,
     args: [
-      '--disable-extensions-except=' + extensionDir,
-      '--load-extension=' + extensionDir,
+      '--disable-extensions-except=' + testExtensionDir,
+      '--load-extension=' + testExtensionDir,
     ],
   };
   if (chromiumExecutable) browserOptions.executablePath = chromiumExecutable;
@@ -231,11 +316,106 @@ try {
   assert.equal(requests.filter((item) => item.text === 'window A selection').length, 1);
   assert.equal(requests.filter((item) => item.text === 'window B selection').length, 1);
 
-  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、取消旧结果、重试、双窗口选文');
+  // The test extension alone has localhost page access, so the real background
+  // route can inject its content script without automating Chrome's native menu.
+  const inlineUrl = new URL('/inline-fixture', endpoint).href;
+  const inlinePage = await context.newPage();
+  await inlinePage.goto(inlineUrl);
+  const inlineTabId = await worker.evaluate(async (url) => {
+    const tabs = await chrome.tabs.query({});
+    return tabs.find((tab) => tab.url === url)?.id;
+  }, inlineUrl);
+  assert.ok(Number.isInteger(inlineTabId), '必须找到本地网页标签页');
+  const inlineHost = inlinePage.locator('#transmate-inline-host');
+  const initialPageCount = context.pages().length;
+
+  let selectedText = await selectFixtureText(inlinePage, 'inline-first');
+  assert.equal(selectedText, 'inline hello');
+  await triggerContextSelection(worker, inlineTabId, selectedText);
+  await inlineHost.locator('.result').waitFor({ state: 'visible' });
+  assert.equal(await inlineHost.locator('.source').textContent(), selectedText);
+  assert.equal(await inlineHost.locator('.result').textContent(), '页内译文');
+  assert.equal(requests.filter((item) => item.text === selectedText).length, 1);
+  assert.equal(inlinePage.url(), inlineUrl, '页内翻译不得跳转当前网页');
+  assert.equal(context.pages().length, initialPageCount, '页内翻译不得新建窗口或标签页');
+  const bounds = await inlineHost.boundingBox();
+  const viewport = inlinePage.viewportSize();
+  assert.ok(bounds && viewport && bounds.x >= 0 && bounds.y >= 0
+    && bounds.x + bounds.width <= viewport.width
+    && bounds.y + bounds.height <= viewport.height,
+  '浮层应保持在可见区域内');
+
+  await inlinePage.evaluate(() => {
+    const shadow = document.querySelector('#transmate-inline-host').shadowRoot;
+    [...shadow.querySelectorAll('button')].find((button) => button.textContent === '重试').click();
+    [...shadow.querySelectorAll('button')].find((button) => button.textContent === '设置').click();
+  });
+  await inlinePage.waitForTimeout(150);
+  assert.equal(requests.filter((item) => item.text === 'inline hello').length, 1,
+    '网页脚本合成点击不得触发额外付费请求');
+  assert.equal(context.pages().length, initialPageCount,
+    '网页脚本合成点击不得打开设置页');
+
+  // Simulate MV3 worker memory loss: retry must recover the selection from
+  // extension session storage rather than relying on a module global.
+  await worker.evaluate(() => globalThis.__transmateTestRouter.activeByTab.clear());
+  await inlineHost.getByRole('button', { name: '重试' }).click();
+  await waitUntil(() => requests.filter((item) => item.text === 'inline hello').length === 2,
+    '后台恢复选文并重试');
+  await waitUntil(async () => await inlineHost.locator('.result').isVisible()
+    && await inlineHost.locator('.result').textContent() === '页内译文', '浮层重试译文');
+
+  await worker.evaluate(() => globalThis.__transmateTestRouter.activeByTab.clear());
+  await worker.evaluate(async () => {
+    const { settings } = await chrome.storage.local.get('settings');
+    await chrome.storage.local.set({ settings: { ...settings, prompt: 'Changed during inline display' } });
+  });
+  await inlineHost.locator('.error').waitFor({ state: 'visible' });
+  assert.match(await inlineHost.locator('.error').textContent(), /配置已更新/);
+
+  await inlineHost.getByRole('button', { name: '关闭翻译' }).click();
+  await inlineHost.waitFor({ state: 'detached' });
+
+  selectedText = await selectFixtureText(inlinePage, 'inline-slow');
+  await triggerContextSelection(worker, inlineTabId, selectedText);
+  await inlineHost.locator('.loading').waitFor({ state: 'visible' });
+  await waitUntil(() => requests.some((item) => item.text === 'inline slow'), '延迟页内请求已发出');
+  selectedText = await selectFixtureText(inlinePage, 'inline-latest');
+  await triggerContextSelection(worker, inlineTabId, selectedText);
+  await waitUntil(async () =>
+    await inlineHost.locator('.result').isVisible()
+    && await inlineHost.locator('.result').textContent() === '最新页内译文',
+  '新选文替换旧请求');
+  assert.equal(await inlineHost.count(), 1, '重复划词只应保留一个浮层');
+  delayedInlineResponses.get('inline slow').gate.resolve();
+  await delayedInlineResponses.get('inline slow').finished.promise;
+  await inlinePage.waitForTimeout(150);
+  assert.equal(await inlineHost.locator('.source').textContent(), 'inline latest');
+  assert.equal(await inlineHost.locator('.result').textContent(), '最新页内译文',
+    '迟到的旧译文不得覆盖新选文');
+  assert.equal(requests.filter((item) => item.text === 'inline latest').length, 1);
+
+  await inlinePage.keyboard.press('Escape');
+  await inlineHost.waitFor({ state: 'detached' });
+  selectedText = await selectFixtureText(inlinePage, 'inline-close-slow');
+  await triggerContextSelection(worker, inlineTabId, selectedText);
+  await waitUntil(() => requests.some((item) => item.text === 'inline close slow'), '关闭前的页内请求已发出');
+  await inlineHost.getByRole('button', { name: '关闭翻译' }).click();
+  await inlineHost.waitFor({ state: 'detached' });
+  delayedInlineResponses.get('inline close slow').gate.resolve();
+  await delayedInlineResponses.get('inline close slow').finished.promise;
+  await inlinePage.waitForTimeout(150);
+  assert.equal(await inlineHost.count(), 0, '关闭后迟到的译文不得重新打开浮层');
+  assert.equal(context.pages().length, initialPageCount, '页内流程不得新建窗口或标签页');
+  assert.equal(await worker.evaluate(() => globalThis.__transmateTestSidePanelOpens), 0,
+    '普通网页的页内翻译不得打开侧栏');
+
+  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、取消旧结果、重试、双窗口选文、页内划词浮层');
   console.log('Mock POST requests: ' + requests.map((item) => item.text).join(', '));
 } finally {
   releaseSlowResponse?.();
+  for (const delayed of delayedInlineResponses.values()) delayed.gate.resolve();
   await context?.close();
   await new Promise((resolve) => server.close(resolve));
-  await rm(profileDir, { recursive: true, force: true });
+  await rm(tempDir, { recursive: true, force: true });
 }
