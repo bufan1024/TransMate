@@ -19,12 +19,13 @@ async function waitFor(predicate) {
 
 function fakeChrome({
   settings = { apiKey: 'private-test-key' }, session = {}, inject, storageAccessError = false,
+  selectionResults = [], currentTab = tab(),
 } = {}) {
   const sessionState = { ...session };
   const listeners = {};
   const calls = {
     menus: [], behavior: [], accessLevels: [], injections: [], messages: [],
-    writes: [], opens: [], removals: [], options: 0,
+    writes: [], opens: [], removals: [], queries: [], options: 0,
   };
   const api = {
     runtime: {
@@ -35,6 +36,9 @@ function fakeChrome({
     contextMenus: {
       create: (item) => { calls.menus.push(item); },
       onClicked: { addListener: (fn) => { listeners.clicked = fn; } },
+    },
+    commands: {
+      onCommand: { addListener: (fn) => { listeners.command = fn; } },
     },
     sidePanel: {
       setPanelBehavior: (value) => { calls.behavior.push(value); return Promise.resolve(); },
@@ -67,12 +71,18 @@ function fakeChrome({
     scripting: {
       executeScript: async (details) => {
         calls.injections.push(details);
+        if (details.func) return typeof selectionResults === 'function'
+          ? selectionResults(details) : selectionResults;
         if (inject) return inject(details);
         const frameId = details.target.frameIds[0];
         return [{ frameId, documentId: 'doc-' + details.target.tabId + '-' + frameId }];
       },
     },
     tabs: {
+      query: async (query) => {
+        calls.queries.push(query);
+        return currentTab ? [currentTab] : [];
+      },
       sendMessage: async (tabId, message, options) => {
         calls.messages.push({ tabId, message, options });
         return { ok: true };
@@ -132,6 +142,175 @@ test('right-click uses inline SHOW and RESULT without opening panel or leaking A
   assert.ok(Object.keys(calls.writes[0])[0].startsWith('inlineSelection:17:'));
   assert.equal(JSON.stringify(calls.writes).includes(settings.apiKey), false);
   assert.equal(JSON.stringify(calls.messages).includes(settings.apiKey), false);
+});
+
+test('shortcut reads the selected frame and translates in the existing inline card', async () => {
+  const settings = { apiKey: 'shortcut-private-key' };
+  const { api, calls, listeners } = fakeChrome({
+    settings,
+    selectionResults: [
+      { frameId: 0, documentId: 'doc-17-0', result: { text: '' } },
+      { frameId: 3, documentId: 'doc-17-3', result: { text: '  Hello shortcut  ', focused: true } },
+    ],
+  });
+  const translated = [];
+  const router = registerBackground(api, {
+    translateImpl: async (request) => { translated.push(request); return '快捷键译文'; },
+  });
+
+  assert.equal(typeof listeners.command, 'function');
+  await router.onCommand('translate-selection', tab());
+
+  assert.deepEqual(calls.injections[0].target, { tabId: 17, allFrames: true });
+  assert.equal(typeof calls.injections[0].func, 'function');
+  assert.deepEqual(calls.injections[1], {
+    target: { tabId: 17, frameIds: [3] }, files: ['content-script.js'],
+  });
+  const [show] = messages(calls, 'TRANSMATE_INLINE_SHOW');
+  const [result] = messages(calls, 'TRANSMATE_INLINE_RESULT');
+  assert.equal(show.message.text, 'Hello shortcut');
+  assert.deepEqual(show.options, { documentId: 'doc-17-3' });
+  assert.equal(result.message.translation, '快捷键译文');
+  assert.equal(result.message.requestId, show.message.requestId);
+  assert.equal(translated.length, 1);
+  assert.equal(translated[0].text, 'Hello shortcut');
+  assert.equal(translated[0].settings, settings);
+  assert.deepEqual(calls.opens, []);
+  assert.equal(JSON.stringify(calls.messages).includes(settings.apiKey), false);
+});
+
+test('shortcut finds the active tab when Chrome omits the onCommand tab argument', async () => {
+  const activeTab = tab(23, 9, 'https://example.test/other');
+  const { api, calls } = fakeChrome({
+    currentTab: activeTab,
+    selectionResults: [{ frameId: 0, documentId: 'doc-23-0', result: { text: 'Active tab text', focused: true } }],
+  });
+  const router = registerBackground(api, { translateImpl: async () => '当前页译文' });
+
+  await router.onCommand('translate-selection');
+
+  assert.deepEqual(calls.queries, [{ active: true, currentWindow: true }]);
+  assert.deepEqual(calls.injections[0].target, { tabId: 23, allFrames: true });
+  assert.equal(messages(calls, 'TRANSMATE_INLINE_SHOW')[0].tabId, 23);
+  assert.equal(messages(calls, 'TRANSMATE_INLINE_RESULT')[0].message.translation, '当前页译文');
+});
+
+test('unknown shortcut command does not inspect the page or call the provider', async () => {
+  const { api, calls } = fakeChrome({
+    selectionResults: [{ frameId: 0, result: { text: 'Should be ignored' } }],
+  });
+  let translations = 0;
+  const router = registerBackground(api, {
+    translateImpl: async () => { translations += 1; return '译文'; },
+  });
+
+  await router.onCommand('unrelated-command', tab());
+
+  assert.deepEqual(calls.injections, []);
+  assert.deepEqual(calls.messages, []);
+  assert.deepEqual(calls.queries, []);
+  assert.equal(translations, 0);
+});
+
+test('shortcut with no selection shows a hint without calling the provider', async () => {
+  const { api, calls } = fakeChrome({
+    selectionResults: [{ frameId: 0, documentId: 'doc-17-0', result: { text: '', focused: true } }],
+  });
+  let translations = 0;
+  const router = registerBackground(api, {
+    translateImpl: async () => { translations += 1; return 'Should not be sent'; },
+  });
+
+  await router.onCommand('translate-selection', tab());
+
+  const [show] = messages(calls, 'TRANSMATE_INLINE_SHOW');
+  const [result] = messages(calls, 'TRANSMATE_INLINE_RESULT');
+  assert.equal(show.message.text, '');
+  assert.equal(result.message.requestId, show.message.requestId);
+  assert.equal(result.message.error, '请先选中文字，再按快捷键翻译。');
+  assert.equal(translations, 0);
+  assert.deepEqual(calls.writes, []);
+  assert.deepEqual(calls.opens, []);
+});
+
+test('shortcut ignores stale selection in an unfocused frame', async () => {
+  const { api, calls } = fakeChrome({
+    selectionResults: [
+      { frameId: 0, result: { text: '', focused: true } },
+      { frameId: 3, result: { text: 'Stale text', focused: false } },
+    ],
+  });
+  let translations = 0;
+  const router = registerBackground(api, {
+    translateImpl: async () => { translations += 1; return 'Should not be sent'; },
+  });
+  await router.onCommand('translate-selection', tab());
+
+  assert.equal(messages(calls, 'TRANSMATE_INLINE_SHOW')[0].message.text, '');
+  assert.equal(translations, 0);
+});
+
+test('shortcut ignores all residual selections when no page frame has focus', async () => {
+  const { api, calls } = fakeChrome({
+    selectionResults: [{ frameId: 0, result: { text: 'Residual text', focused: false } }],
+  });
+  let translations = 0;
+  const router = registerBackground(api, {
+    translateImpl: async () => { translations += 1; return 'Should not be sent'; },
+  });
+  await router.onCommand('translate-selection', tab());
+
+  assert.equal(messages(calls, 'TRANSMATE_INLINE_SHOW')[0].message.text, '');
+  assert.equal(translations, 0);
+});
+
+test('shortcut cannot start a paid request when selection access or card injection fails', async () => {
+  for (const failure of ['selection', 'card', 'storage']) {
+    const { api, calls } = fakeChrome({
+      storageAccessError: failure === 'storage',
+      selectionResults: failure === 'selection'
+        ? () => { throw new Error('Selection access denied'); }
+        : [{ frameId: 0, documentId: 'doc-17-0', result: { text: 'Private text', focused: true } }],
+      inject: failure === 'card'
+        ? async () => { throw new Error('Content script denied'); }
+        : undefined,
+    });
+    let translations = 0;
+    const router = registerBackground(api, {
+      translateImpl: async () => { translations += 1; return 'Should not be sent'; },
+    });
+
+    await router.onCommand('translate-selection', tab());
+
+    assert.equal(translations, 0, failure);
+    assert.deepEqual(messages(calls, 'TRANSMATE_INLINE_RESULT'), [], failure);
+  }
+});
+
+test('a slower shortcut selection read cannot replace a newer context-menu translation', async () => {
+  const pendingSelection = deferred();
+  const selectionStarted = deferred();
+  const { api, calls } = fakeChrome({
+    selectionResults: async () => {
+      selectionStarted.resolve();
+      return pendingSelection.promise;
+    },
+  });
+  const translated = [];
+  const router = registerBackground(api, {
+    translateImpl: async ({ text }) => { translated.push(text); return `译文:${text}`; },
+  });
+  const shortcut = router.onCommand('translate-selection', tab());
+  await selectionStarted.promise;
+  await router.onClicked(selected('Newer menu text'), tab());
+  pendingSelection.resolve([
+    { frameId: 0, documentId: 'doc-17-0', result: { text: 'Stale shortcut text', focused: true } },
+  ]);
+  await shortcut;
+
+  assert.deepEqual(translated, ['Newer menu text']);
+  assert.deepEqual(messages(calls, 'TRANSMATE_INLINE_SHOW').map(({ message }) => message.text),
+    ['Newer menu text']);
 });
 
 test('restricted page falls back to panel with the selected text', async () => {

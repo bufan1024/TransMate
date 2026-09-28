@@ -21,6 +21,15 @@
     "service_worker": "background.js",
     "type": "module"
   },
+  "commands": {
+    "translate-selection": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "翻译当前选中文字"
+    }
+  },
   "action": {
     "default_title": "打开 TransMate",
     "default_icon": {
