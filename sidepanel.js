@@ -3,6 +3,7 @@ import { shouldAcceptSelection } from "./lib/selection.js";
 import { translate } from "./lib/translator.js";
 
 const MAX_TEXT_LENGTH = 5000;
+const TRANSLATION_SETTING_KEYS = ["provider", "endpoint", "apiKey", "model", "targetLanguage", "prompt"];
 const targetNames = {
   "zh-CN": "简体中文",
   "zh-TW": "繁体中文",
@@ -78,6 +79,22 @@ function showResult(kind, value = "") {
   elements.state.textContent = { empty: "等待输入", loading: "翻译中", success: "已完成", error: "遇到问题" }[kind];
   if (kind === "success") elements.result.textContent = value;
   if (kind === "error") elements.errorMessage.textContent = value;
+}
+
+function translationSettingsChanged(nextSettings) {
+  return TRANSLATION_SETTING_KEYS.some((key) => settings[key] !== nextSettings[key]);
+}
+
+function invalidateTranslation() {
+  requestNumber += 1;
+  activeController?.abort();
+  activeController = null;
+  busy = false;
+  translation = "";
+  currentText = "";
+  elements.result.textContent = "";
+  elements.copyLabel.textContent = "复制译文";
+  showResult("empty");
 }
 
 function errorMessage(error) {
@@ -216,7 +233,9 @@ document.querySelector("#banner-settings").addEventListener("click", openSetting
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes.settings) {
-    settings = { ...DEFAULT_SETTINGS, ...(changes.settings.newValue || {}) };
+    const nextSettings = { ...DEFAULT_SETTINGS, ...(changes.settings.newValue || {}) };
+    if (translationSettingsChanged(nextSettings)) invalidateTranslation();
+    settings = nextSettings;
     updateControls();
     maybeTranslateSelection();
   }
