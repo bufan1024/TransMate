@@ -40,10 +40,21 @@
 
 ## 开发验证
 
-无需安装前端依赖。使用 Node.js 20 或以上版本运行：
+扩展无需构建。使用 Node.js 20 或以上版本安装开发依赖并运行测试：
 
 ```bash
+npm ci
 npm test
+npx playwright install chromium
+npm run test:browser
 ```
 
-测试覆盖配置校验、AI 响应处理和右键入口。真实 AI 请求需用自己的配置在 Chrome 中进行连接测试；自动化测试不会发起付费请求。
+如果已安装可加载扩展的 Chromium 或 Chrome for Testing，可用 `TRANSMATE_CHROMIUM_EXECUTABLE="/path/to/chromium" npm run test:browser` 指定浏览器，不必下载 Playwright 的 Chromium。
+
+单元测试覆盖配置校验、AI 响应处理和右键事件路由。浏览器测试会建立临时 Chrome 配置文件和仅监听 `127.0.0.1` 的模拟 AI 服务，验证连接检测不保存配置、申请的域名范围、授权允许与拒绝分支、保存配置、侧栏页面译文、请求期间取消与重试，以及两个浏览器窗口各自消费选文。测试结束会清理临时配置文件；不会连接真实 AI 服务或发起付费请求。
+
+浏览器测试会模拟 `chrome.permissions.request` 和 `contains` 的返回结果；它直接打开侧栏页面，不操作 Chrome 原生授权弹窗、右键菜单或侧栏容器。发布前请在目标 Chrome 版本中手动检查：
+
+1. 加载未打包扩展，在设置页保存服务配置，并在 Chrome 的授权弹窗中确认当前域名；核对设置页的授权域名列表。
+2. 在普通网页选中文字，使用原生右键菜单选择「用 TransMate 翻译」，确认侧栏打开、原文正确且译文有效。
+3. 使用自己的真实 AI 服务配置执行一次「测试连接」。此步骤由用户在本机操作，可能产生服务费用。

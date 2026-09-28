@@ -1,6 +1,6 @@
 import { DEFAULT_SETTINGS, PROVIDERS, originPatternForEndpoint } from "./lib/config.js";
 import { checkConnection } from "./lib/connection-check.js";
-import { canReuseSavedKey, persistSettings, resolveSettings, revokeGrantedOrigin } from "./lib/settings-management.js";
+import { SettingsOperationError, canReuseSavedKey, persistSettings, resolveSettings, revokeGrantedOrigin, saveSettingsWithPermission, withSettingsLock } from "./lib/settings-management.js";
 
 const form = document.querySelector("#settings-form");
 const providerList = document.querySelector("#provider-list");
@@ -135,14 +135,14 @@ async function revokeOrigin(origin) {
   cancelConnectionCheck();
   setBusy(true, "manage");
   try {
-    const removed = await revokeGrantedOrigin(origin, chrome.permissions);
+    const removed = await withSettingsLock(globalThis.navigator?.locks, () => revokeGrantedOrigin(origin, chrome.permissions));
     const origins = await refreshPermissions();
     if (origins === null) showStatus("无法确认撤销结果，请重新打开设置页检查授权列表。", "error");
     else if (origins.includes(origin)) showStatus(`撤销 ${origin} 失败，授权仍在。请重试或在 Chrome 扩展管理页处理。`, "error");
     else if (removed) showStatus(`已撤销 ${origin} 的访问权限。需要时可重新保存或测试连接。`, "success");
     else showStatus("该域名已没有授权，列表已刷新。", "working");
-  } catch {
-    showStatus("撤销失败，请检查浏览器权限并重试。", "error");
+  } catch (error) {
+    showSettingsFailure(error, "撤销失败，请检查浏览器权限并重试。");
     await refreshPermissions();
   } finally {
     setBusy(false);
@@ -188,6 +188,14 @@ function validationError(error) {
   return message;
 }
 
+function showSettingsFailure(error, fallback) {
+  if (error instanceof SettingsOperationError) {
+    showStatus(error.kind === "validation" ? validationError(error) : error.message, "error");
+  } else {
+    showStatus(fallback, "error");
+  }
+}
+
 function requestEndpointPermission(endpoint) {
   // Call within the click/submit gesture, before any await.
   return chrome.permissions.request({ origins: [originPatternForEndpoint(endpoint)] });
@@ -224,6 +232,10 @@ form.addEventListener("change", onFormChanged);
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (operationBusy) return;
+  if (typeof globalThis.navigator?.locks?.request !== "function") {
+    showStatus("当前浏览器不支持安全的多页面设置操作，请升级 Chrome 后重试。", "error");
+    return;
+  }
   const draft = formSettings();
   let config;
   let permissionPromise;
@@ -242,22 +254,20 @@ form.addEventListener("submit", async (event) => {
       showStatus("未获得该服务的访问权限。请允许访问后再保存。", "error");
       return;
     }
-    const previous = await readSavedSettings();
-    try {
-      config = resolveSettings(draft, previous);
-    } catch (error) {
-      showStatus(validationError(error), "error");
-      return;
-    }
-    const result = await persistSettings({ nextSettings: config, previousSettings: previous, storageArea: chrome.storage.local, permissionsApi: chrome.permissions });
-    savedSettings = config;
+    const result = await saveSettingsWithPermission({
+      draft,
+      storageArea: chrome.storage.local,
+      permissionsApi: chrome.permissions,
+      lockManager: globalThis.navigator?.locks,
+    });
+    savedSettings = result.settings;
     apiKeyInput.value = "";
     renderKeyStatus();
     showStatus(result.cleanupFailed
       ? "配置已保存，但旧域名权限未能撤销。请在下方授权列表中手动处理。"
       : "配置已保存。现在可以在网页中选中文字开始翻译。", result.cleanupFailed ? "error" : "success");
-  } catch {
-    showStatus("保存失败，请检查浏览器存储和权限后重试。新申请的域名权限可能仍保留在下方列表中。", "error");
+  } catch (error) {
+    showSettingsFailure(error, "保存失败，请检查浏览器存储和权限后重试。新申请的域名权限可能仍保留在下方列表中。");
   } finally {
     await refreshPermissions();
     setBusy(false);
@@ -317,22 +327,25 @@ clearKeyButton.addEventListener("click", async () => {
   cancelConnectionCheck();
   setBusy(true, "manage");
   try {
-    const previous = await readSavedSettings();
-    if (!previous?.apiKey) {
-      savedSettings = previous;
+    const outcome = await withSettingsLock(globalThis.navigator?.locks, async () => {
+      const previous = await readSavedSettings();
+      if (!previous?.apiKey) return { noKey: true, settings: previous };
+      const next = { ...previous, apiKey: "" };
+      const result = await persistSettings({ nextSettings: next, previousSettings: previous, storageArea: chrome.storage.local, permissionsApi: chrome.permissions });
+      return { noKey: false, settings: next, ...result };
+    });
+    savedSettings = outcome.settings;
+    if (outcome.noKey) {
       apiKeyInput.value = "";
       showStatus("当前没有已保存的 API Key。", "working");
       return;
     }
-    const next = { ...previous, apiKey: "" };
-    const result = await persistSettings({ nextSettings: next, previousSettings: previous, storageArea: chrome.storage.local, permissionsApi: chrome.permissions });
-    savedSettings = next;
     apiKeyInput.value = "";
-    showStatus(result.cleanupFailed
+    showStatus(outcome.cleanupFailed
       ? "密钥已清除，但服务域名权限未能撤销。请在下方列表中手动处理。"
-      : "已清除本机保存的密钥和当前输入。", result.cleanupFailed ? "error" : "success");
-  } catch {
-    showStatus("清除密钥失败，请检查浏览器存储后重试。", "error");
+      : "已清除本机保存的密钥和当前输入。", outcome.cleanupFailed ? "error" : "success");
+  } catch (error) {
+    showSettingsFailure(error, "清除密钥失败，请检查浏览器存储后重试。");
   } finally {
     await refreshPermissions();
     setBusy(false);
@@ -344,15 +357,17 @@ resetButton.addEventListener("click", async () => {
   cancelConnectionCheck();
   setBusy(true, "manage");
   try {
-    const previous = await readSavedSettings();
-    const result = await persistSettings({ nextSettings: null, previousSettings: previous, storageArea: chrome.storage.local, permissionsApi: chrome.permissions });
+    const result = await withSettingsLock(globalThis.navigator?.locks, async () => {
+      const previous = await readSavedSettings();
+      return persistSettings({ nextSettings: null, previousSettings: previous, storageArea: chrome.storage.local, permissionsApi: chrome.permissions });
+    });
     savedSettings = null;
     fillForm(DEFAULT_SETTINGS);
     showStatus(result.cleanupFailed
       ? "配置已重置，但部分域名权限未能撤销。请在下方列表中手动处理。"
       : "本机配置和密钥已重置，已撤销授权域名。", result.cleanupFailed ? "error" : "success");
-  } catch {
-    showStatus("重置失败，原配置仍保留。请检查浏览器存储后重试。", "error");
+  } catch (error) {
+    showSettingsFailure(error, "重置失败，原配置仍保留。请检查浏览器存储后重试。");
   } finally {
     await refreshPermissions();
     setBusy(false);

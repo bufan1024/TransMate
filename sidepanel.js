@@ -66,8 +66,9 @@ function updateControls() {
   elements.count.textContent = `${length.toLocaleString("zh-CN")} 字`;
   elements.count.style.color = length > MAX_TEXT_LENGTH ? "#9e3524" : "";
   elements.clear.disabled = length === 0;
-  elements.translate.disabled = busy || !length || length > MAX_TEXT_LENGTH || !ready;
-  elements.retry.disabled = busy || !currentText || !ready;
+  const consumingSelection = Boolean(pendingSelection || consumingSelectionId);
+  elements.translate.disabled = busy || consumingSelection || !length || length > MAX_TEXT_LENGTH || !ready;
+  elements.retry.disabled = busy || consumingSelection || !currentText || !ready;
   elements.copy.disabled = !translation;
   elements.target.textContent = `译为${targetNames[settings.targetLanguage] || settings.targetLanguage || "目标语言"}`;
   elements.banner.hidden = ready;
@@ -108,6 +109,7 @@ function errorMessage(error) {
 }
 
 async function runTranslation(text) {
+  if (busy || pendingSelection || consumingSelectionId) return;
   const trimmed = text.trim();
   if (!trimmed) return;
   if (trimmed.length > MAX_TEXT_LENGTH) {
@@ -206,10 +208,11 @@ function maybeTranslateSelection() {
         || !normalizedSettings()) return;
     handledSelectionId = selected.id;
     pendingSelection = null;
+    consumingSelectionId = null;
     runTranslation(selected.text);
   }).catch(() => {
     if (pendingSelection?.id === selected.id) {
-      showResult("error", "无法保存选文状态，请重试翻译。");
+      showResult("error", "无法清理选文状态。请编辑原文后再手动翻译。");
     }
   }).finally(() => {
     if (consumingSelectionId === selected.id) consumingSelectionId = null;
@@ -219,6 +222,7 @@ function maybeTranslateSelection() {
 elements.input.addEventListener("input", () => {
   if (pendingSelection) discardSelection(pendingSelection.storageKey);
   pendingSelection = null;
+  consumingSelectionId = null;
   activeController?.abort();
   requestNumber += 1;
   activeController = null;

@@ -192,3 +192,26 @@ test('deleting an older event cannot remove a newer event or trigger a duplicate
     reopened.restore();
   }
 });
+
+test('waiting for selection consumption cannot start a duplicate manual request', async () => {
+  const key = selectionStorageKey(7, 'pending');
+  const app = await mountPanel({ delayedRemovalKey: key });
+  try {
+    app.emit(selection(7, 'pending', 'Pending', 100));
+    await app.flush();
+    assert.equal(app.element('#translate-button').disabled, true);
+
+    app.element('#translate-button').dispatchEvent({ type: 'click' });
+    app.element('#source-text').dispatchEvent({
+      type: 'keydown', key: 'Enter', metaKey: true, preventDefault() {},
+    });
+    await app.flush();
+    assert.equal(app.requests.length, 0);
+
+    app.releaseRemoval();
+    await app.flush();
+    assert.deepEqual(app.requests.map(({ text }) => text), ['Pending']);
+  } finally {
+    app.restore();
+  }
+});

@@ -7,6 +7,7 @@ import {
   resolveSettings,
   revokeGrantedOrigin,
 } from '../lib/settings-management.js';
+import * as settingsManagement from '../lib/settings-management.js';
 
 const saved = {
   provider: 'custom',
@@ -165,4 +166,111 @@ test('manual removal targets only a currently granted exact origin', async () =>
   assert.equal(await revokeGrantedOrigin('https://old.example/*', permissionsApi), true);
   assert.equal(await revokeGrantedOrigin('https://other.example/*', permissionsApi), false);
   assert.deepEqual(calls, [['https://old.example/*']]);
+});
+
+function createLockManager() {
+  let previous = Promise.resolve();
+  return {
+    request(_name, options, callback) {
+      assert.equal(options.mode, 'exclusive');
+      const current = previous.then(() => callback({}));
+      previous = current.then(() => {}, () => {});
+      return current;
+    },
+  };
+}
+
+function createSharedSettings(initialSettings, initialOrigins) {
+  let currentSettings = initialSettings;
+  const origins = new Set(initialOrigins);
+  const storageArea = {
+    async get() { return currentSettings ? { settings: currentSettings } : {}; },
+    async setAccessLevel() {},
+    async set({ settings }) { currentSettings = settings; },
+    async remove() { currentSettings = null; },
+  };
+  const permissionsApi = {
+    async contains({ origins: requested }) { return requested.every((origin) => origins.has(origin)); },
+    async getAll() { return { origins: [...origins] }; },
+    async remove({ origins: removed }) {
+      for (const origin of removed) origins.delete(origin);
+      return true;
+    },
+  };
+  return { storageArea, permissionsApi, origins, get settings() { return currentSettings; } };
+}
+
+test('concurrent saves cannot leave the final service without its host permission', async () => {
+  const state = createSharedSettings(saved, ['https://old.example/*', 'https://api.openai.com/*']);
+  const lockManager = createLockManager();
+  let reads = 0;
+  const read = state.storageArea.get;
+  state.storageArea.get = async (...args) => { reads += 1; return read(...args); };
+  let releaseFirstCleanup;
+  let firstCleanupStarted;
+  const reachedCleanup = new Promise((resolve) => { firstCleanupStarted = resolve; });
+  const getAll = state.permissionsApi.getAll;
+  let first = true;
+  state.permissionsApi.getAll = async () => {
+    if (first) {
+      first = false;
+      firstCleanupStarted();
+      await new Promise((resolve) => { releaseFirstCleanup = resolve; });
+    }
+    return getAll();
+  };
+
+  const saveNew = settingsManagement.saveSettingsWithPermission({
+    draft: next, storageArea: state.storageArea, permissionsApi: state.permissionsApi, lockManager,
+  });
+  await reachedCleanup;
+  const saveOld = settingsManagement.saveSettingsWithPermission({
+    draft: saved, storageArea: state.storageArea, permissionsApi: state.permissionsApi, lockManager,
+  });
+  const rejectedSaveOld = assert.rejects(saveOld, /授权已变化/);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(reads, 1, 'the second page must wait before reading settings');
+  releaseFirstCleanup();
+  await saveNew;
+  await rejectedSaveOld;
+  assert.equal(state.settings.endpoint, next.endpoint);
+  assert.deepEqual([...state.origins], ['https://api.openai.com/*']);
+});
+
+test('a save queued behind reset cannot persist settings after its grant is revoked', async () => {
+  const state = createSharedSettings(saved, ['https://old.example/*', 'https://api.openai.com/*']);
+  const lockManager = createLockManager();
+  let reads = 0;
+  const read = state.storageArea.get;
+  state.storageArea.get = async (...args) => { reads += 1; return read(...args); };
+  let releaseReset;
+  let resetStarted;
+  const reachedReset = new Promise((resolve) => { resetStarted = resolve; });
+  const reset = settingsManagement.withSettingsLock(lockManager, async () => {
+    const previousSettings = (await state.storageArea.get('settings')).settings || null;
+    resetStarted();
+    await new Promise((resolve) => { releaseReset = resolve; });
+    return persistSettings({ nextSettings: null, previousSettings, storageArea: state.storageArea, permissionsApi: state.permissionsApi });
+  });
+  await reachedReset;
+  const saveNew = settingsManagement.saveSettingsWithPermission({
+    draft: next, storageArea: state.storageArea, permissionsApi: state.permissionsApi, lockManager,
+  });
+  const rejectedSaveNew = assert.rejects(saveNew, /授权已变化/);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(reads, 1, 'the save must wait for reset before reading settings');
+  releaseReset();
+  await reset;
+  await rejectedSaveNew;
+  assert.equal(state.settings, null);
+  assert.equal(state.origins.size, 0);
+});
+
+test('settings mutation fails closed when Web Locks are unavailable', async () => {
+  let changed = false;
+  await assert.rejects(
+    settingsManagement.withSettingsLock(undefined, async () => { changed = true; }),
+    /不支持安全的多页面设置操作/,
+  );
+  assert.equal(changed, false);
 });

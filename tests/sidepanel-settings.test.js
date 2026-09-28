@@ -157,3 +157,26 @@ test('unrelated settings changes keep an active translation', async () => {
     app.restore();
   }
 });
+
+test('keyboard shortcut does not start a second request while translating', async () => {
+  const app = await mountSidepanel();
+  try {
+    beginTranslation(app);
+    await app.flush();
+    assert.equal(app.requests.length, 1);
+
+    app.element('#source-text').dispatchEvent({
+      type: 'keydown',
+      key: 'Enter',
+      metaKey: true,
+      preventDefault() {},
+    });
+    await app.flush();
+    assert.equal(app.requests.length, 1);
+    assert.equal(app.requests[0].options.signal.aborted, false);
+    resolveTranslation(app.requests[0], '当前译文');
+    await app.flush();
+  } finally {
+    app.restore();
+  }
+});
