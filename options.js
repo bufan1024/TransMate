@@ -1,5 +1,5 @@
 import { DEFAULT_SETTINGS, PROVIDERS, originPatternForEndpoint, validateSettings } from "./lib/config.js";
-import { translate } from "./lib/translator.js";
+import { checkConnection } from "./lib/connection-check.js";
 
 const form = document.querySelector("#settings-form");
 const providerList = document.querySelector("#provider-list");
@@ -13,6 +13,7 @@ const saveButton = document.querySelector("#save-settings");
 const testButton = document.querySelector("#test-connection");
 const toggleKey = document.querySelector("#toggle-key");
 let previousProvider = DEFAULT_SETTINGS.provider;
+let activeConnectionCheck = null;
 
 function renderProviders() {
   for (const provider of PROVIDERS) {
@@ -61,11 +62,21 @@ function showStatus(message, tone) {
   status.hidden = false;
 }
 
-function setBusy(busy) {
+function setBusy(busy, mode = "save") {
   saveButton.disabled = busy;
-  testButton.disabled = busy;
-  saveButton.querySelector("span:first-child").textContent = busy ? "请稍候…" : "保存配置";
-  testButton.querySelector(".test-label").textContent = busy ? "测试中…" : "测试连接";
+  testButton.disabled = busy && mode !== "test";
+  saveButton.querySelector("span:first-child").textContent = busy && mode === "save" ? "请稍候…" : "保存配置";
+  testButton.querySelector(".test-label").textContent = busy && mode === "test" ? "取消检测" : busy ? "请稍候…" : "测试连接";
+  testButton.dataset.testing = String(busy && mode === "test");
+}
+
+function cancelConnectionCheck(message = "连接检测已取消。") {
+  if (!activeConnectionCheck) return;
+  const check = activeConnectionCheck;
+  activeConnectionCheck = null;
+  check.controller.abort();
+  setBusy(false);
+  showStatus(message, "working");
 }
 
 function validationError(error) {
@@ -102,6 +113,13 @@ toggleKey.addEventListener("click", () => {
   toggleKey.setAttribute("aria-pressed", String(reveal));
 });
 
+function onFormChanged() {
+  if (activeConnectionCheck) cancelConnectionCheck("配置已修改，连接检测已取消。请重新检测。");
+  else status.hidden = true;
+}
+form.addEventListener("input", onFormChanged);
+form.addEventListener("change", onFormChanged);
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   let config;
@@ -132,6 +150,10 @@ form.addEventListener("submit", async (event) => {
 });
 
 testButton.addEventListener("click", async () => {
+  if (activeConnectionCheck) {
+    cancelConnectionCheck();
+    return;
+  }
   let config;
   let permissionPromise;
   try {
@@ -142,20 +164,30 @@ testButton.addEventListener("click", async () => {
     return;
   }
 
-  setBusy(true);
-  showStatus("正在发送一小段示例文字…", "working");
+  const check = { controller: new AbortController() };
+  activeConnectionCheck = check;
+  setBusy(true, "test");
+  showStatus("正在检测连接，将发送一小段示例文字；可点击「取消检测」。", "working");
   try {
     if (!(await permissionPromise)) {
+      if (activeConnectionCheck !== check) return;
       showStatus("未获得该服务的访问权限。请允许访问后重试。", "error");
       return;
     }
-    const result = await translate({ text: "Hello, world.", settings: config });
-    showStatus(`连接成功。示例译文：${result}`, "success");
+    if (activeConnectionCheck !== check) return;
+    const { translation, durationMs } = await checkConnection({ settings: config, signal: check.controller.signal });
+    if (activeConnectionCheck !== check) return;
+    const sample = translation.length > 120 ? `${translation.slice(0, 120)}…` : translation;
+    showStatus(`连接正常，已收到有效译文（${(durationMs / 1000).toFixed(1)} 秒）。示例译文：「${sample}」。检测本身不会保存配置。`, "success");
   } catch (error) {
+    if (activeConnectionCheck !== check) return;
     const message = error?.message || String(error);
-    showStatus(`连接失败：${message}`, "error");
+    showStatus(`连接检测失败：${message}`, "error");
   } finally {
-    setBusy(false);
+    if (activeConnectionCheck === check) {
+      activeConnectionCheck = null;
+      setBusy(false);
+    }
   }
 });
 
