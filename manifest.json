@@ -25,7 +25,7 @@
     "translate-selection": {
       "suggested_key": {
         "default": "Ctrl+Shift+Y",
-        "mac": "Command+Shift+Y"
+        "mac": "Option+1"
       },
       "description": "翻译当前选中文字"
     }

@@ -441,6 +441,9 @@ try {
   const shortcutCommand = await worker.evaluate(async () =>
     (await chrome.commands.getAll()).find((command) => command.name === 'translate-selection'));
   assert.ok(shortcutCommand, 'manifest 必须注册划词翻译快捷键');
+  assert.match(shortcutCommand.shortcut,
+    process.platform === 'darwin' ? /^(?:⌥|Option\+|Alt\+)1$/ : /^Ctrl\+Shift\+Y$/,
+    'Chrome 必须实际分配当前平台的默认快捷键');
   await inlinePage.bringToFront();
   selectedText = await selectFixtureText(inlinePage, 'shortcut-paragraph');
   await triggerShortcutSelection(worker, inlineTabId);
