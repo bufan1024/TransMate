@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>TransMate · 设置</title>
+    <link rel="stylesheet" href="./options.css" />
+    <script type="module" src="./options.js"></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <aside class="story-panel" aria-label="TransMate 介绍">
+        <div class="story-inner">
+          <div class="brand" aria-label="TransMate"><span class="brand-mark">T<span>译</span></span><span class="brand-word">Trans<span>Mate</span></span></div>
+          <div class="story-copy">
+            <span class="overline"><span></span> YOUR WORDS, YOUR MODEL</span>
+            <h1>把翻译，<br />交给<span>你选择</span><br />的 AI。</h1>
+            <p>一个轻巧的网页阅读伙伴。选中文字，打开侧边栏，让熟悉的语言自然抵达。</p>
+          </div>
+          <div class="story-steps" aria-label="使用步骤">
+            <div><b>01</b><span>选择服务与模型</span></div>
+            <div><b>02</b><span>测试并保存配置</span></div>
+            <div><b>03</b><span>选中文字，开始翻译</span></div>
+          </div>
+          <div class="story-bottom">TRANSLATE WITH INTENTION <span aria-hidden="true">↗</span></div>
+        </div>
+        <span class="story-watermark" aria-hidden="true">译</span>
+      </aside>
+
+      <main class="settings-panel">
+        <div class="settings-inner">
+          <div class="topline"><span>SETTINGS / 配置</span><span class="topline-indicator"><i></i> PRIVATE BY DESIGN</span></div>
+          <header class="page-heading"><span class="small-index">01 / 03</span><h2>连接你的 AI 服务</h2><p>按你的习惯配置翻译。保存后，在任何网页选中文字并通过右键菜单打开 TransMate。</p></header>
+
+          <form id="settings-form" novalidate>
+            <section class="form-section" aria-labelledby="provider-heading">
+              <div class="section-heading"><span class="section-number">01</span><h3 id="provider-heading">选择服务</h3><span class="heading-rule"></span></div>
+              <p class="section-help">预设会填写接口地址。你仍可修改地址，或选择自定义 OpenAI 兼容接口。</p>
+              <div id="provider-list" class="provider-grid" role="radiogroup" aria-label="AI 服务"></div>
+            </section>
+
+            <section class="form-section" aria-labelledby="connection-heading">
+              <div class="section-heading"><span class="section-number">02</span><h3 id="connection-heading">连接信息</h3><span class="heading-rule"></span></div>
+              <div class="field"><label for="endpoint">接口地址 <span class="required">*</span></label><input id="endpoint" name="endpoint" type="url" inputmode="url" autocomplete="url" placeholder="https://example.com/v1/chat/completions" required /><small>填写完整的 Chat Completions 接口地址。仅本机服务可使用 HTTP。</small></div>
+              <div class="field-row">
+                <div class="field"><label for="api-key">API Key <span class="required">*</span></label><div class="secret-field"><input id="api-key" name="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="粘贴你的 API Key" required /><button id="toggle-key" type="button" aria-label="显示 API Key" aria-pressed="false">显示</button></div></div>
+                <div class="field"><label for="model">模型 ID <span class="required">*</span></label><input id="model" name="model" type="text" autocomplete="off" spellcheck="false" placeholder="填写服务支持的模型 ID" required /></div>
+              </div>
+            </section>
+
+            <section class="form-section" aria-labelledby="translation-heading">
+              <div class="section-heading"><span class="section-number">03</span><h3 id="translation-heading">翻译偏好</h3><span class="heading-rule"></span></div>
+              <div class="field"><label for="target-language">目标语言</label><div class="select-wrap"><select id="target-language" name="targetLanguage"><option value="zh-CN">简体中文</option><option value="zh-TW">繁体中文</option><option value="en">English</option><option value="ja">日本語</option><option value="ko">한국어</option><option value="fr">Français</option><option value="de">Deutsch</option><option value="es">Español</option></select><span aria-hidden="true">⌄</span></div></div>
+              <div class="field"><label for="prompt">自定义翻译要求 <span class="optional">可选</span></label><textarea id="prompt" name="prompt" rows="3" placeholder="例如：保留专业术语，语气简洁自然。"></textarea><small>这段要求会附加到翻译指令中。无需重复填写目标语言。</small></div>
+            </section>
+
+            <div class="notice"><span class="notice-icon" aria-hidden="true">✳</span><p><strong>关于你的数据</strong><br />API Key 保存在此浏览器的扩展本地存储中；翻译文本会发送给你选择的 AI 服务。测试连接会发送一小段示例文字。</p></div>
+            <div id="form-status" class="form-status" role="status" aria-live="polite" hidden></div>
+            <div class="form-actions"><button class="test-button" id="test-connection" type="button"><span aria-hidden="true">↗</span><span class="test-label">测试连接</span></button><button class="save-button" id="save-settings" type="submit"><span>保存配置</span><span aria-hidden="true">→</span></button></div>
+          </form>
+          <footer>TRANSMATE <span>·</span> 让阅读继续</footer>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>TransMate · 翻译</title>
+    <link rel="stylesheet" href="./sidepanel.css" />
+    <script type="module" src="./sidepanel.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="masthead">
+        <div class="brand" aria-label="TransMate">
+          <span class="brand-mark" aria-hidden="true">T<span>译</span></span>
+          <span class="brand-word">Trans<span>Mate</span></span>
+        </div>
+        <button class="icon-button" id="open-settings" type="button" title="打开设置" aria-label="打开设置">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M12 3.5v2m0 13v2m8.5-8.5h-2m-13 0h-2m14.51-6.01-1.42 1.42M7.41 16.59l-1.42 1.42m12.02 0-1.42-1.42M7.41 7.41 5.99 5.99" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="4.25" stroke="currentColor" stroke-width="1.6"/></svg>
+        </button>
+      </header>
+
+      <main>
+        <section class="intro" aria-labelledby="page-title">
+          <div class="eyebrow"><span class="eyebrow-line"></span> READING COMPANION / 01</div>
+          <h1 id="page-title">让文字，<br /><em>更近一点。</em></h1>
+          <p>选中网页文字，右键点“用 TransMate 翻译”；也可以在这里直接输入。</p>
+        </section>
+
+        <div class="connection-banner" id="connection-banner" hidden>
+          <span class="banner-symbol" aria-hidden="true">!</span>
+          <span id="connection-message">先配置 AI 服务，即可开始翻译。</span>
+          <button id="banner-settings" type="button">去设置 <span aria-hidden="true">↗</span></button>
+        </div>
+
+        <section class="translator-card" aria-label="翻译工作区">
+          <div class="section-label"><span class="section-index">01</span><span>原文</span><span class="section-rule"></span><span id="source-count">0 字</span></div>
+          <label class="sr-only" for="source-text">需要翻译的文字</label>
+          <textarea id="source-text" placeholder="在网页上选中文字，或在这里粘贴内容…" spellcheck="false"></textarea>
+          <div class="source-actions">
+            <button class="text-button" id="clear-source" type="button" disabled>清空</button>
+            <span class="keyboard-hint">⌘ / Ctrl + Enter</span>
+          </div>
+          <div class="direction-line"><span class="direction-dash"></span><span class="direction-target" id="target-label">译为中文</span><span class="direction-arrow" aria-hidden="true">↓</span></div>
+          <button class="translate-button" id="translate-button" type="button" disabled>
+            <span>开始翻译</span><span class="button-arrow" aria-hidden="true">↗</span>
+          </button>
+        </section>
+
+        <section class="result-section" aria-labelledby="result-title">
+          <div class="section-label"><span class="section-index">02</span><h2 id="result-title">译文</h2><span class="section-rule"></span><span class="result-state" id="result-state">等待输入</span></div>
+          <div class="result-panel" id="result-panel" aria-live="polite">
+            <div class="result-empty" id="result-empty"><span class="empty-glyph" aria-hidden="true">“</span><p>好文字，值得被读懂。</p><small>翻译结果会出现在这里</small></div>
+            <div class="result-loading" id="result-loading" hidden><span class="loader" aria-hidden="true"></span><span>正在斟酌字句…</span></div>
+            <p class="result-text" id="result-text" hidden></p>
+            <div class="result-error" id="result-error" role="alert" hidden><strong>暂时没能完成翻译</strong><p id="error-message"></p></div>
+          </div>
+          <div class="result-actions">
+            <button class="secondary-button" id="retry-button" type="button" disabled><span aria-hidden="true">↻</span> 重试</button>
+            <button class="secondary-button" id="copy-button" type="button" disabled><span aria-hidden="true">⧉</span> <span id="copy-label">复制译文</span></button>
+          </div>
+        </section>
+      </main>
+
+      <footer><span class="footer-dot" aria-hidden="true"></span><span>文字仅发送至你配置的 AI 服务</span></footer>
+    </div>
+  </body>
+</html>

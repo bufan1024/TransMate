@@ -1,0 +1,3 @@
+[mcp_servers.chrome-devtools-transmate]
+command = "npx"
+args = ["-y", "chrome-devtools-mcp@latest", "--categoryExtensions", "--autoConnect"]
