@@ -1,5 +1,5 @@
 import { DEFAULT_SETTINGS, validateSettings } from "./lib/config.js";
-import { shouldAcceptSelection } from "./lib/selection.js";
+import { compareSelections, selectionStorageKey, selectionStoragePrefix, selectionWindowIdFromKey, shouldAcceptSelection } from "./lib/selection.js";
 import { translate } from "./lib/translator.js";
 
 const MAX_TEXT_LENGTH = 5000;
@@ -37,13 +37,16 @@ const elements = {
 let settings = { ...DEFAULT_SETTINGS };
 let pendingSelection = null;
 let handledSelectionId = null;
+let consumingSelectionId = null;
+let newestSelection = null;
 let activeController = null;
 let currentText = "";
 let translation = "";
 let requestNumber = 0;
 let busy = false;
 let currentWindowId = null;
-let queuedSelection = null;
+let settingsChangeVersion = 0;
+const queuedSelections = new Map();
 
 function openSettings() {
   chrome.runtime.openOptionsPage();
@@ -155,42 +158,66 @@ async function runTranslation(text) {
   }
 }
 
-function acceptSelection(selection) {
+function discardSelection(key) {
+  chrome.storage.session.remove(key).catch(() => {});
+}
+
+function acceptSelection(key, selection) {
   if (currentWindowId === null) {
-    queuedSelection = selection;
+    queuedSelections.set(key, selection);
     return;
   }
-  if (!shouldAcceptSelection(selection, currentWindowId)) return;
-  if (selection.id === handledSelectionId) return;
-  pendingSelection = selection;
+  if (!key.startsWith(selectionStoragePrefix(currentWindowId))) return;
+  if (!shouldAcceptSelection(selection, currentWindowId)
+      || key !== selectionStorageKey(currentWindowId, selection.id)) {
+    discardSelection(key);
+    return;
+  }
+  if (newestSelection && compareSelections(selection, newestSelection) <= 0) {
+    if (selection.id !== newestSelection.id) discardSelection(key);
+    return;
+  }
+
+  if (pendingSelection && pendingSelection.id !== consumingSelectionId) {
+    discardSelection(pendingSelection.storageKey);
+  }
+  newestSelection = selection;
+  pendingSelection = { ...selection, storageKey: key };
   elements.input.value = selection.text;
-  activeController?.abort();
-  requestNumber += 1;
-  activeController = null;
-  busy = false;
-  translation = "";
-  currentText = "";
-  showResult("empty");
+  invalidateTranslation();
   updateControls();
   maybeTranslateSelection();
 }
 
 function maybeTranslateSelection() {
-  if (!pendingSelection || pendingSelection.id === handledSelectionId || !normalizedSettings()) return;
+  if (!pendingSelection || pendingSelection.id === handledSelectionId
+      || pendingSelection.id === consumingSelectionId || !normalizedSettings()) return;
   if (!shouldAcceptSelection(pendingSelection, currentWindowId)) {
+    discardSelection(pendingSelection.storageKey);
     pendingSelection = null;
     return;
   }
-  const selectionId = pendingSelection.id;
-  handledSelectionId = selectionId;
-  // Consume the event so reopening the panel does not issue another paid request.
-  chrome.storage.session.get("pendingSelection").then(({ pendingSelection: current }) => {
-    if (current?.id === selectionId) return chrome.storage.session.remove("pendingSelection");
-  }).catch(() => {});
-  runTranslation(pendingSelection.text);
+  const selected = pendingSelection;
+  consumingSelectionId = selected.id;
+  // Remove this immutable event before requesting a paid translation. A newer
+  // event uses another key and cannot be removed by this delayed operation.
+  chrome.storage.session.remove(selected.storageKey).then(() => {
+    if (pendingSelection?.id !== selected.id || newestSelection?.id !== selected.id
+        || !normalizedSettings()) return;
+    handledSelectionId = selected.id;
+    pendingSelection = null;
+    runTranslation(selected.text);
+  }).catch(() => {
+    if (pendingSelection?.id === selected.id) {
+      showResult("error", "无法保存选文状态，请重试翻译。");
+    }
+  }).finally(() => {
+    if (consumingSelectionId === selected.id) consumingSelectionId = null;
+  });
 }
 
 elements.input.addEventListener("input", () => {
+  if (pendingSelection) discardSelection(pendingSelection.storageKey);
   pendingSelection = null;
   activeController?.abort();
   requestNumber += 1;
@@ -233,16 +260,24 @@ document.querySelector("#banner-settings").addEventListener("click", openSetting
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes.settings) {
+    settingsChangeVersion += 1;
     const nextSettings = { ...DEFAULT_SETTINGS, ...(changes.settings.newValue || {}) };
     if (translationSettingsChanged(nextSettings)) invalidateTranslation();
     settings = nextSettings;
     updateControls();
     maybeTranslateSelection();
   }
-  if (area === "session" && changes.pendingSelection?.newValue) acceptSelection(changes.pendingSelection.newValue);
+  if (area === "session") {
+    for (const [key, change] of Object.entries(changes)) {
+      if (selectionWindowIdFromKey(key) !== null && change.newValue) {
+        acceptSelection(key, change.newValue);
+      }
+    }
+  }
 });
 
 async function initialize() {
+  const initialSettingsChangeVersion = settingsChangeVersion;
   try {
     await chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
     try {
@@ -253,13 +288,34 @@ async function initialize() {
     }
     const [storedSettings, session] = await Promise.all([
       chrome.storage.local.get("settings"),
-      chrome.storage.session.get("pendingSelection"),
+      chrome.storage.session.get(null),
     ]);
-    settings = { ...DEFAULT_SETTINGS, ...(storedSettings.settings || {}) };
+    if (settingsChangeVersion === initialSettingsChangeVersion) {
+      settings = { ...DEFAULT_SETTINGS, ...(storedSettings.settings || {}) };
+    }
     updateControls();
-    const newestSelection = queuedSelection && (!session.pendingSelection || queuedSelection.createdAt >= session.pendingSelection.createdAt)
-      ? queuedSelection : session.pendingSelection;
-    acceptSelection(newestSelection);
+    if (currentWindowId !== null) {
+      const prefix = selectionStoragePrefix(currentWindowId);
+      const candidates = new Map([
+        ...Object.entries(session).filter(([key]) => key.startsWith(prefix)),
+        ...queuedSelections,
+      ]);
+      const valid = [];
+      for (const [key, selection] of candidates) {
+        if (!key.startsWith(prefix)) continue;
+        if (shouldAcceptSelection(selection, currentWindowId)
+            && key === selectionStorageKey(currentWindowId, selection.id)) {
+          valid.push([key, selection]);
+        } else {
+          discardSelection(key);
+        }
+      }
+      valid.sort((left, right) => compareSelections(left[1], right[1]));
+      for (const [key] of valid.slice(0, -1)) discardSelection(key);
+      const latest = valid.at(-1);
+      if (latest) acceptSelection(...latest);
+    }
+    queuedSelections.clear();
     maybeTranslateSelection();
   } catch (error) {
     showResult("error", `无法读取扩展设置：${errorMessage(error)}`);
