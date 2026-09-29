@@ -44,7 +44,7 @@
               <div class="section-heading"><span class="section-number">02</span><h3 id="connection-heading">连接信息</h3><span class="heading-rule"></span></div>
               <div class="field"><label for="endpoint">接口地址 <span class="required">*</span></label><input id="endpoint" name="endpoint" type="url" inputmode="url" autocomplete="url" placeholder="https://example.com/v1/chat/completions" required /><small>填写完整的 Chat Completions 接口地址。仅本机服务可使用 HTTP。</small></div>
               <div class="field-row">
-                <div class="field"><label for="api-key">API Key <span class="required">*</span></label><div class="secret-field"><input id="api-key" name="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="粘贴你的 API Key" required /><button id="toggle-key" type="button" aria-label="显示 API Key" aria-pressed="false">显示</button></div></div>
+                <div class="field"><label for="api-key">API Key <span class="required">*</span></label><input id="api-key" name="apiKey" type="password" autocomplete="off" spellcheck="false" aria-describedby="key-status" placeholder="填写新的 API Key" /><small id="key-status">正在读取已保存配置…</small></div>
                 <div class="field"><label for="model">模型 ID <span class="required">*</span></label><input id="model" name="model" type="text" autocomplete="off" spellcheck="false" placeholder="填写服务支持的模型 ID" required /></div>
               </div>
             </section>
@@ -58,6 +58,14 @@
             <div class="notice"><span class="notice-icon" aria-hidden="true">✳</span><p><strong>关于你的数据</strong><br />API Key 保存在此浏览器的扩展本地存储中；翻译文本会发送给你选择的 AI 服务。测试连接会发送一小段示例文字。</p></div>
             <div id="form-status" class="form-status" role="status" aria-live="polite" hidden></div>
             <div class="form-actions"><button class="test-button" id="test-connection" type="button"><span aria-hidden="true">↗</span><span class="test-label">测试连接</span></button><button class="save-button" id="save-settings" type="submit"><span>保存配置</span><span aria-hidden="true">→</span></button></div>
+
+            <section class="management-section" aria-labelledby="management-heading">
+              <div class="management-heading"><h3 id="management-heading">本机凭据与授权</h3><p>已保存的密钥不会回填。切换服务或接口后，请填写新密钥。</p></div>
+              <div class="management-actions"><button id="clear-saved-key" type="button">清除已保存密钥</button><button id="reset-settings" type="button">重置全部配置</button></div>
+              <h4>已授权的服务域名</h4>
+              <ul id="permission-list" class="permission-list" aria-label="已授权域名"><li class="permission-empty">正在读取…</li></ul>
+              <p class="permission-help">撤销当前服务的访问权限后，需重新保存或测试连接才能继续翻译。</p>
+            </section>
           </form>
           <footer>TRANSMATE <span>·</span> 让阅读继续</footer>
         </div>
