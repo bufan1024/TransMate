@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "test:browser": "node browser/e2e.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
   }
 }
