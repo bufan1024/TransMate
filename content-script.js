@@ -17,6 +17,7 @@
     invalidatedRequestId: null,
     latestOrder: 0,
     retryingRequestId: null,
+    notice: false,
     source: '',
     translation: '',
     error: '',
@@ -287,20 +288,26 @@
     });
 
     state.host = host;
-    state.elements = { source, loading, result, error, retryButton, copyButton };
+    state.elements = {
+      sourceSection, source, resultLabel, loading, result, error, retryButton, copyButton,
+    };
     return true;
   }
 
   function render() {
     if (!state.elements) return;
-    const { source, loading, result, error, retryButton, copyButton } = state.elements;
+    const { sourceSection, source, resultLabel, loading, result, error, retryButton, copyButton } = state.elements;
     source.textContent = state.source;
+    sourceSection.hidden = state.notice;
+    resultLabel.textContent = state.notice ? '提示' : '译文';
     loading.hidden = state.status !== 'loading';
     result.hidden = state.status !== 'success';
     error.hidden = state.status !== 'error';
     result.textContent = state.status === 'success' ? state.translation : '';
     error.textContent = state.status === 'error' ? state.error : '';
+    retryButton.hidden = state.notice;
     retryButton.disabled = state.status === 'loading';
+    copyButton.hidden = state.notice;
     copyButton.disabled = state.status !== 'success';
     copyButton.textContent = '复制译文';
     schedulePosition();
@@ -325,6 +332,7 @@
     state.requestId = message.requestId;
     state.invalidatedRequestId = null;
     state.latestOrder = message.order;
+    state.notice = message.notice === true;
     state.source = message.text;
     state.translation = '';
     state.error = '';

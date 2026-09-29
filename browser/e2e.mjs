@@ -17,6 +17,14 @@ const fixturePage = `<!doctype html>
 <p id="inline-slow">inline slow</p>
 <p id="inline-latest">inline latest</p>
 <p id="inline-close-slow">inline close slow</p>
+<p id="shortcut-paragraph">shortcut paragraph</p>
+<input id="shortcut-input" value="shortcut input">
+<iframe id="shortcut-frame" src="/inline-frame" title="Shortcut frame"></iframe>
+</html>`;
+const frameFixturePage = `<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<p id="shortcut-frame-text">shortcut frame</p>
 </html>`;
 
 function deferred() {
@@ -41,6 +49,11 @@ const server = createServer(async (request, response) => {
   if (request.method === 'GET' && request.url === '/inline-fixture') {
     response.setHeader('Content-Type', 'text/html; charset=utf-8');
     response.writeHead(200).end(fixturePage);
+    return;
+  }
+  if (request.method === 'GET' && request.url === '/inline-frame') {
+    response.setHeader('Content-Type', 'text/html; charset=utf-8');
+    response.writeHead(200).end(frameFixturePage);
     return;
   }
   if (request.method === 'OPTIONS') {
@@ -75,6 +88,9 @@ const server = createServer(async (request, response) => {
     'inline slow': '过期页内译文',
     'inline latest': '最新页内译文',
     'inline close slow': '关闭后不应显示的译文',
+    'shortcut paragraph': '快捷键段落译文',
+    'shortcut input': '快捷键输入译文',
+    'shortcut frame': '快捷键框架译文',
   };
   if (text === 'slow cancel') {
     await new Promise((resolve) => { releaseSlowResponse = resolve; });
@@ -122,6 +138,16 @@ async function triggerContextSelection(worker, tabId, text) {
     }, tab);
     return true;
   }, { tabId, selectedText: text });
+}
+
+async function triggerShortcutSelection(worker, tabId) {
+  return worker.evaluate(async (selectedTabId) => {
+    const backgroundRouter = globalThis.__transmateTestRouter;
+    if (!backgroundRouter?.onCommand) throw new Error('背景快捷键路由未导出');
+    const tab = await chrome.tabs.get(selectedTabId);
+    backgroundRouter.onCommand('translate-selection', tab);
+    return true;
+  }, tabId);
 }
 
 const tempDir = await mkdtemp(join(tmpdir(), 'transmate-inline-'));
@@ -410,7 +436,82 @@ try {
   assert.equal(await worker.evaluate(() => globalThis.__transmateTestSidePanelOpens), 0,
     '普通网页的页内翻译不得打开侧栏');
 
-  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、取消旧结果、重试、双窗口选文、页内划词浮层');
+  // The browser reserves native extension shortcuts, so invoke the registered
+  // route directly while its selection reader and UI run in real page frames.
+  const shortcutCommand = await worker.evaluate(async () =>
+    (await chrome.commands.getAll()).find((command) => command.name === 'translate-selection'));
+  assert.ok(shortcutCommand, 'manifest 必须注册划词翻译快捷键');
+  assert.match(shortcutCommand.shortcut,
+    process.platform === 'darwin' ? /^(?:⌥|Option\+|Alt\+)1$/ : /^Ctrl\+Shift\+Y$/,
+    'Chrome 必须实际分配当前平台的默认快捷键');
+  await inlinePage.bringToFront();
+  selectedText = await selectFixtureText(inlinePage, 'shortcut-paragraph');
+  await triggerShortcutSelection(worker, inlineTabId);
+  await waitUntil(async () => await inlineHost.locator('.result').isVisible()
+    && await inlineHost.locator('.result').textContent() === '快捷键段落译文',
+  '快捷键翻译普通段落');
+  assert.equal(await inlineHost.locator('.source').textContent(), selectedText);
+  assert.equal(requests.filter((item) => item.text === 'shortcut paragraph').length, 1);
+  await inlineHost.getByRole('button', { name: '关闭翻译' }).click();
+  await inlineHost.waitFor({ state: 'detached' });
+
+  selectedText = await inlinePage.locator('#shortcut-input').evaluate((input) => {
+    window.getSelection()?.removeAllRanges();
+    input.focus();
+    input.setSelectionRange(0, input.value.length);
+    return input.value.slice(input.selectionStart, input.selectionEnd);
+  });
+  assert.equal(selectedText, 'shortcut input');
+  await triggerShortcutSelection(worker, inlineTabId);
+  await waitUntil(async () => await inlineHost.locator('.result').isVisible()
+    && await inlineHost.locator('.result').textContent() === '快捷键输入译文',
+  '快捷键翻译输入框选文');
+  assert.equal(await inlineHost.locator('.source').textContent(), selectedText);
+  assert.equal(requests.filter((item) => item.text === 'shortcut input').length, 1);
+  await inlineHost.getByRole('button', { name: '关闭翻译' }).click();
+  await inlineHost.waitFor({ state: 'detached' });
+
+  await inlinePage.evaluate(() => {
+    window.getSelection()?.removeAllRanges();
+    document.activeElement?.blur?.();
+  });
+  const shortcutFrameText = inlinePage.frameLocator('#shortcut-frame').locator('#shortcut-frame-text');
+  await shortcutFrameText.click();
+  selectedText = await shortcutFrameText.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+    return window.getSelection()?.toString();
+  });
+  assert.equal(selectedText, 'shortcut frame');
+  await triggerShortcutSelection(worker, inlineTabId);
+  await waitUntil(async () => await inlinePage.frameLocator('#shortcut-frame')
+    .locator('#transmate-inline-host .result').isVisible()
+    && await inlinePage.frameLocator('#shortcut-frame')
+      .locator('#transmate-inline-host .result').textContent() === '快捷键框架译文',
+  '快捷键翻译同源框架选文');
+  const frameHost = inlinePage.frameLocator('#shortcut-frame').locator('#transmate-inline-host');
+  assert.equal(await frameHost.locator('.source').textContent(), selectedText);
+  assert.equal(requests.filter((item) => item.text === 'shortcut frame').length, 1);
+  await frameHost.getByRole('button', { name: '关闭翻译' }).click();
+  await frameHost.waitFor({ state: 'detached' });
+
+  await inlinePage.evaluate(() => {
+    window.getSelection()?.removeAllRanges();
+    const input = document.querySelector('#shortcut-input');
+    input.setSelectionRange(0, 0);
+    input.blur();
+  });
+  await shortcutFrameText.evaluate(() => window.getSelection()?.removeAllRanges());
+  await inlinePage.locator('body').click({ position: { x: 4, y: 4 } });
+  const beforeEmptyShortcut = requests.length;
+  await triggerShortcutSelection(worker, inlineTabId);
+  await inlineHost.getByText(/请先选中文字/).waitFor({ state: 'visible' });
+  assert.equal(requests.length, beforeEmptyShortcut, '空选文快捷键不得调用 AI 服务');
+  assert.equal(context.pages().length, initialPageCount, '快捷键翻译不得新建窗口或标签页');
+
+  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、取消旧结果、重试、双窗口选文、页内划词浮层、快捷键翻译');
   console.log('Mock POST requests: ' + requests.map((item) => item.text).join(', '));
 } finally {
   releaseSlowResponse?.();

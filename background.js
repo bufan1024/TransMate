@@ -5,6 +5,27 @@ const MENU_ID = 'translate-selection';
 const INLINE_TIMEOUT_MS = 25_000;
 const INLINE_SCRIPT = 'content-script.js';
 const INLINE_SESSION_PREFIX = 'inlineSelection:';
+const SHORTCUT_HINT = '请先选中文字，再按快捷键翻译。';
+
+// chrome.scripting serializes this function and runs it inside each frame.
+function readSelectionInFrame() {
+  const active = document.activeElement;
+  const focused = document.hasFocus() && !(active instanceof HTMLIFrameElement);
+  if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
+    if (active instanceof HTMLInputElement && active.type === 'password') return { text: '', focused };
+    try {
+      const { selectionStart, selectionEnd } = active;
+      return {
+        text: Number.isInteger(selectionStart) && Number.isInteger(selectionEnd)
+          ? active.value.slice(selectionStart, selectionEnd) : '',
+        focused,
+      };
+    } catch {
+      return { text: '', focused };
+    }
+  }
+  return { text: window.getSelection()?.toString() || '', focused };
+}
 
 function inlineSessionKey(tabId, requestId) {
   return `${INLINE_SESSION_PREFIX}${tabId}:${requestId}`;
@@ -31,6 +52,7 @@ export function registerBackground(chromeApi, { translateImpl = translate, timeo
   let lastSelectionOrder = 0;
   let lastInlineOrder = 0;
   const activeByTab = new Map();
+  const latestIntentByTab = new Map();
   // local storage is otherwise exposed to content scripts by default. Keep
   // provider credentials in trusted extension contexts before injecting one.
   const privateStorageReady = Promise.all([
@@ -114,6 +136,18 @@ export function registerBackground(chromeApi, { translateImpl = translate, timeo
     }
   }
 
+  function claimIntent(tabId, order) {
+    if (!Number.isInteger(tabId) || (latestIntentByTab.get(tabId) || 0) > order) return false;
+    latestIntentByTab.set(tabId, order);
+    const previous = activeByTab.get(tabId);
+    if (previous) cancel(previous, { hide: true });
+    return true;
+  }
+
+  function intentCurrent(tabId, order) {
+    return latestIntentByTab.get(tabId) === order;
+  }
+
   function fallbackToPanel(text, windowId) {
     if (!Number.isInteger(windowId)) return;
     const createdAt = Date.now();
@@ -139,7 +173,7 @@ export function registerBackground(chromeApi, { translateImpl = translate, timeo
   async function show(entry, retryOf) {
     const response = await send(entry, {
       type: 'TRANSMATE_INLINE_SHOW', requestId: entry.requestId, text: entry.text,
-      order: entry.order,
+      order: entry.order, ...(entry.notice ? { notice: true } : {}),
       ...(retryOf ? { retryOf } : {}),
     });
     if (response?.ok !== true) throw new Error('无法显示翻译浮层');
@@ -227,47 +261,106 @@ export function registerBackground(chromeApi, { translateImpl = translate, timeo
     entry.documentId = frame.documentId;
   }
 
-  async function onClicked(info, tab) {
-    if (info.menuItemId !== MENU_ID || !info.selectionText?.trim()) return;
-    const text = info.selectionText.trim();
-    const tabId = tab?.id;
-    const windowId = tab?.windowId;
-    if (Number.isInteger(tabId)) {
-      const previous = activeByTab.get(tabId);
-      if (previous) cancel(previous, { hide: true });
-    }
-    // Restricted browser pages cannot host content scripts. This branch still
-    // opens the panel in the context-menu user gesture.
-    if (!Number.isInteger(tabId) || !isInjectableUrl(tab?.url)) {
-      fallbackToPanel(text, windowId);
-      return;
-    }
-
+  async function startInline({ text, frameId = 0, documentId, notice = false }, tab, order) {
+    const tabId = tab.id;
+    const windowId = tab.windowId;
+    if (!intentCurrent(tabId, order)) return;
     const entry = {
-      tabId, windowId, text, frameId: info.frameId ?? 0,
-      documentId: null, requestId: crypto.randomUUID(), controller: null,
-      shown: false, configInvalidated: false, order: nextInlineOrder(),
+      tabId, windowId, text, frameId, documentId: null,
+      requestId: crypto.randomUUID(), controller: null,
+      shown: false, configInvalidated: false, order, notice,
     };
     activeByTab.set(tabId, entry);
     try {
       if (!await privateStorageReady) throw new Error('无法保护本机配置');
-      if (!current(entry)) return;
+      if (!current(entry) || !intentCurrent(tabId, order)) return;
       try {
         await inject(entry, entry.frameId);
       } catch (error) {
         if (entry.frameId === 0) throw error;
         await inject(entry, 0);
       }
-      if (!current(entry)) return;
+      if (!current(entry) || !intentCurrent(tabId, order)) return;
+      if (documentId && entry.documentId && entry.documentId !== documentId) {
+        cancel(entry, { hide: true });
+        return;
+      }
       await show(entry);
-      if (!current(entry)) return;
+      if (!current(entry) || !intentCurrent(tabId, order)) return;
+      if (notice) {
+        await send(entry, {
+          type: 'TRANSMATE_INLINE_RESULT', requestId: entry.requestId, error: SHORTCUT_HINT,
+        });
+        return;
+      }
       await persist(entry);
-      if (!current(entry)) return;
+      if (!current(entry) || !intentCurrent(tabId, order)) return;
       await runTranslation(entry);
     } catch {
       if (!current(entry)) return;
       cancel(entry, { hide: true });
       fallbackToPanel(text, windowId);
+    }
+  }
+
+  async function onClicked(info, tab) {
+    if (info.menuItemId !== MENU_ID || !info.selectionText?.trim()) return;
+    const text = info.selectionText.trim();
+    const tabId = tab?.id;
+    const order = nextInlineOrder();
+    if (Number.isInteger(tabId) && !claimIntent(tabId, order)) return;
+    // Restricted browser pages cannot host content scripts. This branch still
+    // opens the panel in the context-menu user gesture.
+    if (!Number.isInteger(tabId) || !isInjectableUrl(tab?.url)) {
+      fallbackToPanel(text, tab?.windowId);
+      return;
+    }
+    await startInline({ text, frameId: info.frameId ?? 0 }, tab, order);
+  }
+
+  async function onCommand(command, commandTab) {
+    if (command !== MENU_ID) return;
+    const order = nextInlineOrder();
+    let tab = commandTab;
+    if (!Number.isInteger(tab?.id)) {
+      const tabs = await chromeApi.tabs.query({ active: true, currentWindow: true });
+      tab = tabs?.[0];
+    }
+    if (!Number.isInteger(tab?.id) || !claimIntent(tab.id, order)) return;
+    if (!isInjectableUrl(tab.url)) {
+      chromeApi.sidePanel.open({ windowId: tab.windowId })
+        .catch(() => console.warn('无法打开翻译侧边栏'));
+      return;
+    }
+
+    let results;
+    try {
+      results = await chromeApi.scripting.executeScript({
+        target: { tabId: tab.id, allFrames: true }, func: readSelectionInFrame,
+      });
+    } catch {
+      try {
+        results = await chromeApi.scripting.executeScript({
+          target: { tabId: tab.id, frameIds: [0] }, func: readSelectionInFrame,
+        });
+      } catch {
+        if (intentCurrent(tab.id, order)) {
+          chromeApi.sidePanel.open({ windowId: tab.windowId })
+            .catch(() => console.warn('无法打开翻译侧边栏'));
+        }
+        return;
+      }
+    }
+    if (!intentCurrent(tab.id, order)) return;
+    const chosen = (results || []).find(({ result }) => result?.focused === true
+      && typeof result.text === 'string' && result.text.trim());
+    if (chosen) {
+      await startInline({
+        text: chosen.result.text.trim(), frameId: chosen.frameId,
+        documentId: chosen.documentId,
+      }, tab, order);
+    } else {
+      await startInline({ text: '', notice: true }, tab, order);
     }
   }
 
@@ -313,6 +406,7 @@ export function registerBackground(chromeApi, { translateImpl = translate, timeo
     }
     if (message.requestId !== entry.requestId) return;
     if (message.type === 'TRANSMATE_INLINE_RETRY') {
+      if (entry.notice) return;
       entry.controller?.abort();
       const retry = {
         ...entry, requestId: crypto.randomUUID(), parentRequestId: entry.requestId,
@@ -341,21 +435,27 @@ export function registerBackground(chromeApi, { translateImpl = translate, timeo
   chromeApi.contextMenus.onClicked.addListener((info, tab) => {
     void onClicked(info, tab).catch(() => console.warn('无法处理划词翻译'));
   });
+  chromeApi.commands.onCommand.addListener((command, tab) => {
+    void onCommand(command, tab).catch(() => console.warn('无法处理快捷键翻译'));
+  });
   chromeApi.runtime.onMessage.addListener((message, sender) => {
     void onMessage(message, sender).catch(() => console.warn('无法处理翻译浮层操作'));
   });
   chromeApi.tabs.onRemoved?.addListener((tabId) => {
+    latestIntentByTab.delete(tabId);
     const entry = activeByTab.get(tabId);
     if (entry) cancel(entry);
     void forgetTab(tabId).catch(() => {});
   });
   chromeApi.tabs.onUpdated?.addListener((tabId, changeInfo) => {
     if (!changeInfo.url && changeInfo.status !== 'loading') return;
+    latestIntentByTab.delete(tabId);
     const entry = activeByTab.get(tabId);
     if (entry) cancel(entry, { hide: true });
     void forgetTab(tabId, { hide: true }).catch(() => {});
   });
   function invalidate(entry) {
+    if (entry.notice) return;
     if (entry.configInvalidated) return;
     entry.configInvalidated = true;
     entry.controller?.abort();
@@ -389,7 +489,7 @@ export function registerBackground(chromeApi, { translateImpl = translate, timeo
     }).catch(() => {});
   });
 
-  return { onClicked, onMessage, activeByTab };
+  return { onClicked, onCommand, onMessage, activeByTab };
 }
 
 export const backgroundRouter = typeof chrome !== 'undefined' ? registerBackground(chrome) : null;
