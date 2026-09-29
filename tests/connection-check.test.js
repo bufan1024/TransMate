@@ -54,3 +54,32 @@ test('connection check does not treat a successful HTTP response without transla
     /未返回有效译文/,
   );
 });
+
+test('connection check reports missing host permission before the sample request', async () => {
+  let sent = false;
+  await assert.rejects(
+    checkConnection({
+      settings,
+      permissionsApi: { contains: async () => false },
+      fetchImpl: async () => { sent = true; throw new Error('should not send'); },
+    }),
+    /网站访问权限.*设置页.*授权/,
+  );
+  assert.equal(sent, false);
+});
+
+test('connection check keeps actionable HTTP errors without reading the provider body', async () => {
+  let bodyRead = false;
+  await assert.rejects(
+    checkConnection({
+      settings,
+      fetchImpl: async () => ({
+        ok: false,
+        status: 429,
+        text: async () => { bodyRead = true; return 'private provider detail'; },
+      }),
+    }),
+    /HTTP 429.*请求过于频繁.*稍后重试/,
+  );
+  assert.equal(bodyRead, false);
+});
