@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Test / build artifacts
+coverage/
+dist/
+*.tgz
+
+# Editor & OS
+.DS_Store
+.idea/
+*.swp
+*.swo
+
+# Local env & secrets
+.env
+.env.local
