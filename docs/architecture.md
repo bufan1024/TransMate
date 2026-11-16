@@ -1,10 +1,12 @@
 # TransMate 代码架构
 
-项目入口和验证命令见 [Agent 指南](../AGENTS.md)。`manifest.json` 注册后台 Service Worker、扩展设置页和侧边栏。`content-script.js` 在用户触发选文翻译时按需注入。三条网络入口共用 `lib/translator.js`。
+项目入口和验证命令见 [Agent 指南](../AGENTS.md)。`manifest.json` 注册后台 Service Worker、扩展设置页和侧边栏。`content-script.js` 在用户触发选文翻译时按需注入。翻译、总结和连接检测共用 `lib/translator.js` 的请求逻辑。
 
 | 入口 | 流程 |
 | --- | --- |
 | 网页选文 | `background.js` 读取选文 → 注入 `content-script.js` 并确认浮层显示 → 后台调用 `translate` → 将结果发回浮层 |
+| 网页双语 | `lib/page-actions.js` 注入 `page-content.js` → 按视口读取待翻译段落 → `lib/page-ai.js` 流式接收并校验译文 → 逐段写回原文附近 |
+| 网页总结 | `lib/page-actions.js` 打开侧栏 → 侧栏按文档读取正文 → `lib/page-ai.js` 分批总结 → 显示结果 |
 | 侧栏 | `sidepanel.js` 读取手动输入或当前窗口的待处理选文 → 在侧栏调用 `translate` → 渲染结果 |
 | 测试连接 | `options.js` 校验当前表单并申请授权 → `checkConnection` 用示例文字调用 `translate` → 显示用时和示例译文 |
 
@@ -29,18 +31,25 @@
 | --- | --- | --- |
 | `chrome.storage.local` | `settings` | 本机服务配置，含 API Key。后台、设置页和侧栏限制为 `TRUSTED_CONTEXTS` |
 | `chrome.storage.session` | `inlineSelection:<tabId>:<requestId>` | 暂存浮层原文与来源信息，使 Worker 休眠后仍能重试。新浮层、关闭和页面离开时清理相关记录 |
+| `chrome.storage.session` | `pageTranslation:<tabId>:<requestId>` | 保存双语翻译的请求与文档标识，使 Worker 休眠后可在下一次滚动时继续 |
 | `chrome.storage.session` | `pendingSelection:<windowId>:<id>` | 后台交给侧栏的独立选文事件。`lib/selection.js` 校验同窗口、非空和 30 秒有效期，并按事件顺序比较 |
 
 侧栏监听存储事件，同时读取启动快照。如果窗口 ID 还未返回，先缓存收到的事件，之后合并并选择最新有效选文。配置有效时，先删除该选文自己的存储键，再开始翻译，避免重开侧栏重复请求或旧操作误删新选文。
 
 手动编辑原文、收到新选文或翻译字段变更会中止旧请求。侧栏递增 `requestNumber`，回调只更新对应的当前请求。涉及配置字段时查看 `TRANSLATION_SETTING_KEYS`，当前包含 `provider`、`endpoint`、`apiKey`、`model`、`targetLanguage`、`prompt`。译文仅保留在当前界面状态中。
 
+## 网页双语与重点总结
+
+`page-content.js` 在网页中保留正文和段落位置。双语翻译开始时，`TRANSMATE_PAGE_READ` 只返回计数。后台通过 `TRANSMATE_PAGE_NEXT` 读取初始视口和预读范围内的待翻译段落，范围翻完后等待页面滚动触发 `TRANSMATE_PAGE_MORE`。后台按标签页和文档标识确认归属，逐段发送 `TRANSMATE_PAGE_APPEND`。离开页面、取消或变更设置时，正在处理的请求会中止。
+
+网页总结使用 `TRANSMATE_PAGE_READ` 的 `summary` 模式读取已提取的全文，跟随侧栏本次请求的生命周期。
+
 ## 配置、权限与 AI 请求
 
 - `lib/config.js` 定义默认值和 OpenAI、DeepSeek、OpenRouter、自定义服务选项。服务地址须为以 `/chat/completions` 结尾的完整 HTTPS URL，仅 `localhost` 和 `127.0.0.1` 支持 HTTP。URL 禁止认证信息、查询参数和片段。权限模式由 `originPatternForEndpoint` 生成，形如 `scheme://hostname/*`，省略端口。密钥复用则要求服务 ID 和规范化后的完整接口地址都相同。
 - `options.js` 处理表单。在用户点击保存或测试时，先同步调用 `chrome.permissions.request`，再等待授权结果。页面加载已有配置时将密钥字段留空。
 - `lib/settings-management.js` 处理持久化与权限清理。保存配置在 `transmate-settings` 锁内读取现有设置、按当前状态解析草稿、重新确认授权、写入设置，最后尝试撤销不再使用的旧域名。清除密钥时保留其余字段，重置时删除设置并尝试撤销全部已授予的域名。`cleanupFailed` 表示写入或删除已生效，权限清理仍有失败项。
-- `lib/translator.js` 校验选文和配置、检查域名访问权限，然后向配置的接口发送 Bearer 鉴权的非流式 `POST` 请求。原文上限为 5000（JavaScript 字符串长度），成功条件是 `choices[0].message.content` 为非空文本。模块返回带 HTTP 状态的错误提示时，不保留上游响应正文。侧栏和连接检测各有 45 秒超时。
+- `lib/translator.js` 校验配置和域名访问权限，再向已配置的接口发送 Bearer 鉴权的 `POST` 请求。选文、手动翻译、连接检测和总结使用非流式响应。网页双语通过 `lib/completion-stream.js` 读取 Chat Completions 流，按完整的一行 JSON 校验段落，也兼容普通 JSON 响应。模块返回带 HTTP 状态的错误提示时，不保留上游响应正文。手动翻译和连接检测各有 45 秒超时。
 - `lib/connection-check.js` 发送 `Hello, world.`，返回 `{ translation, durationMs }`。测试连接可取消，且不会写入设置。授权弹窗的结果独立于请求取消，可能留下可在设置页手动撤销的授权。
 
 ## 调整页面时检查的接口

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "TransMate · AI 翻译",
   "short_name": "TransMate",
-  "description": "划词翻译，自定义你的 AI 服务。",
+  "description": "划词翻译、整页双语和网页重点总结，可自定义 AI 服务。",
   "version": "0.1.0",
   "minimum_chrome_version": "116",
   "permissions": [
@@ -28,6 +28,20 @@
         "mac": "Option+1"
       },
       "description": "翻译当前选中文字"
+    },
+    "translate-page": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+2",
+        "mac": "Option+2"
+      },
+      "description": "整页双语翻译"
+    },
+    "summarize-page": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+3",
+        "mac": "Option+3"
+      },
+      "description": "总结网页重点"
     }
   },
   "action": {

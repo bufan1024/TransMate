@@ -26,6 +26,34 @@ h1 em{font-style:normal;color:var(--accent-dark)}
 .banner-symbol{display:grid;place-items:center;flex:none;width:16px;height:16px;border-radius:50%;background:#e9b26e;color:#3f2a13;font-weight:800;font-size:11px}
 .connection-banner>span:nth-child(2){flex:1}
 .connection-banner button{padding:3px 0 3px 4px;border:0;background:none;color:#88471e;font-size:11px;font-weight:700;white-space:nowrap}
+.page-summary {
+  margin: 0 0 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper-2);
+}
+
+.page-summary h2 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.page-summary-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.page-summary-status:empty {
+  display: none;
+}
+
+.page-summary-status:not(:empty) + .result-text {
+  margin-top: 6px;
+}
+
 .translator-card{padding:17px 17px 18px;border:1px solid #e4e0d4;border-radius:15px;background:var(--paper-2);box-shadow:var(--shadow);animation:reveal .6s .06s ease-out both}
 .section-label{display:flex;align-items:center;gap:9px;color:var(--muted);font-size:11px;font-weight:650;letter-spacing:.2px}
 .section-index{display:inline-grid;place-items:center;width:23px;height:23px;border:1px solid var(--line);border-radius:50%;font-family:Georgia,serif;font-size:10px;font-style:italic;color:var(--accent-dark)}

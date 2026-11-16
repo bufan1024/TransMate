@@ -1,4 +1,5 @@
 import { DEFAULT_SETTINGS, validateSettings } from "./lib/config.js";
+import { createPageSummaryPanel } from "./lib/page-summary-panel.js";
 import { compareSelections, selectionStorageKey, selectionStoragePrefix, selectionWindowIdFromKey, shouldAcceptSelection } from "./lib/selection.js";
 import { translate } from "./lib/translator.js";
 
@@ -47,6 +48,7 @@ let busy = false;
 let currentWindowId = null;
 let settingsChangeVersion = 0;
 const queuedSelections = new Map();
+const summaryPanel = createPageSummaryPanel(chrome, document, normalizedSettings);
 
 function openSettings() {
   chrome.runtime.openOptionsPage();
@@ -266,13 +268,17 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes.settings) {
     settingsChangeVersion += 1;
     const nextSettings = { ...DEFAULT_SETTINGS, ...(changes.settings.newValue || {}) };
-    if (translationSettingsChanged(nextSettings)) invalidateTranslation();
+    if (translationSettingsChanged(nextSettings)) {
+      invalidateTranslation();
+      summaryPanel.reset();
+    }
     settings = nextSettings;
     updateControls();
     maybeTranslateSelection();
   }
   if (area === "session") {
     for (const [key, change] of Object.entries(changes)) {
+      summaryPanel.receive(key, change.newValue);
       if (selectionWindowIdFromKey(key) !== null && change.newValue) {
         acceptSelection(key, change.newValue);
       }
@@ -298,6 +304,7 @@ async function initialize() {
       settings = { ...DEFAULT_SETTINGS, ...(storedSettings.settings || {}) };
     }
     updateControls();
+    summaryPanel.initialize(currentWindowId, session);
     if (currentWindowId !== null) {
       const prefix = selectionStoragePrefix(currentWindowId);
       const candidates = new Map([
