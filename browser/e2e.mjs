@@ -26,6 +26,62 @@ const frameFixturePage = `<!doctype html>
 <meta charset="utf-8">
 <p id="shortcut-frame-text">shortcut frame</p>
 </html>`;
+const articleFixturePage = `<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Reading the night sky</title>
+<nav>navigation omitted</nav>
+<main>
+  <article>
+    <h1>Reading the night sky</h1>
+    <p id="article-intro">Look for the <a href="#article-tip">north star</a> after dusk.</p>
+    <p id="article-tip">Let your eyes adjust to the dark.</p>
+    <ul><li>Bring a red flashlight.</li></ul>
+    <nav>article navigation omitted</nav>
+    <p hidden>hidden page text omitted</p>
+    <p style="visibility:hidden">invisible page text omitted</p>
+    <form><label>form label omitted <input value="form value omitted"></label></form>
+    <div contenteditable="true">editable page text omitted</div>
+  </article>
+</main>
+<footer>site footer omitted</footer>
+</html>`;
+const articleBlocks = [
+  'Reading the night sky',
+  'Look for the north star after dusk.',
+  'Let your eyes adjust to the dark.',
+  'Bring a red flashlight.',
+];
+const articleTranslations = [
+  '阅读夜空',
+  '黄昏后寻找北极星。',
+  '让眼睛适应黑暗。',
+  '带上<em id="unexpected-page-markup">红光手电筒</em>。',
+];
+const articleSummary = '寻找北极星前，先让眼睛适应黑暗。准备一支红光手电筒。';
+const viewportBlocks = [
+  ['viewport-intro', 'Viewport introduction to shoreline tides.', '视口内的潮汐介绍。'],
+  ['viewport-next', 'Viewport detail about estuary currents.', '视口内的河口潮流。'],
+  ['viewport-prefetch', 'Nearby forecast about tomorrow tides.', '附近的明日潮汐预报。'],
+  ['viewport-after-scroll', 'Middle section about a coastal station.', '页面中段的沿海观测站。'],
+  ['viewport-distant', 'Distant appendix about measurements.', '远处的测量附录。'],
+];
+const viewportTranslations = new Map(viewportBlocks.map(([, text, translation]) => [text, translation]));
+const viewportFixturePage = `<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Shoreline tides</title>
+<style>
+  body { margin: 0; }
+  p { margin: 0; padding: 0 20px; line-height: 24px; }
+  #viewport-prefetch { margin-top: 100vh; }
+  #viewport-after-scroll { margin-top: 170vh; }
+  #viewport-distant { margin-top: 210vh; }
+</style>
+<main><article>
+  ${viewportBlocks.map(([id, block]) => `<p id="${id}">${block}</p>`).join('\n  ')}
+</article></main>
+</html>`;
 
 function deferred() {
   let resolve;
@@ -37,6 +93,8 @@ const requests = [];
 let retryAttempts = 0;
 let releaseSlowResponse;
 let finishSlowResponse;
+let delayedPageTranslation;
+let viewportStreamGate;
 const slowResponseFinished = new Promise((resolve) => { finishSlowResponse = resolve; });
 const delayedInlineResponses = new Map([
   ['inline slow', { gate: deferred(), finished: deferred() }],
@@ -56,6 +114,16 @@ const server = createServer(async (request, response) => {
     response.writeHead(200).end(frameFixturePage);
     return;
   }
+  if (request.method === 'GET' && request.url === '/article-fixture') {
+    response.setHeader('Content-Type', 'text/html; charset=utf-8');
+    response.writeHead(200).end(articleFixturePage);
+    return;
+  }
+  if (request.method === 'GET' && request.url === '/viewport-fixture') {
+    response.setHeader('Content-Type', 'text/html; charset=utf-8');
+    response.writeHead(200).end(viewportFixturePage);
+    return;
+  }
   if (request.method === 'OPTIONS') {
     response.writeHead(204).end();
     return;
@@ -68,9 +136,40 @@ const server = createServer(async (request, response) => {
   const chunks = [];
   for await (const chunk of request) chunks.push(chunk);
   const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  const instruction = body.messages.find((message) => message.role === 'system')?.content || '';
   const text = body.messages.find((message) => message.role === 'user')?.content;
-  requests.push({ text, model: body.model });
+  requests.push({ text, model: body.model, stream: body.stream });
   response.setHeader('Content-Type', 'application/json');
+
+  const pageTranslation = instruction.startsWith('Translate the following webpage text blocks into ');
+  const pageSummary = instruction.startsWith('Summarize the following webpage text in ');
+  if (pageTranslation || pageSummary) {
+    const delayed = pageTranslation ? delayedPageTranslation : undefined;
+    if (delayed) await delayed.gate.promise;
+    const blocks = JSON.parse(text);
+    if (pageTranslation && blocks.some((block) => viewportTranslations.has(block.text))) {
+      response.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+      response.writeHead(200);
+      for (const { id, text: block } of blocks) {
+        const content = JSON.stringify({ id, text: viewportTranslations.get(block) }) + '\n';
+        response.write(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`);
+        if (block === viewportBlocks[0][1] && viewportStreamGate) await viewportStreamGate.promise;
+        if (response.destroyed) return;
+      }
+      response.write('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n');
+      response.end('data: [DONE]\n\n');
+      return;
+    }
+    const content = pageSummary ? articleSummary : JSON.stringify(blocks.map(({ id, text: block }) => ({
+      id,
+      text: articleTranslations[articleBlocks.indexOf(block)] || '未知段落译文',
+    })).reverse());
+    if (!response.destroyed) {
+      response.writeHead(200).end(JSON.stringify({ choices: [{ message: { content } }] }));
+    }
+    delayed?.finished.resolve();
+    return;
+  }
 
   if (text === 'retry me' && ++retryAttempts === 1) {
     response.writeHead(429).end(JSON.stringify({ error: 'sensitive upstream detail' }));
@@ -114,6 +213,10 @@ async function waitUntil(predicate, description, timeoutMs = 5000) {
   }
 }
 
+function requestedPageText(since) {
+  return requests.slice(since).flatMap(({ text }) => JSON.parse(text).map((block) => block.text));
+}
+
 async function selectFixtureText(page, elementId) {
   return page.evaluate((id) => {
     const element = document.getElementById(id);
@@ -127,27 +230,28 @@ async function selectFixtureText(page, elementId) {
   }, elementId);
 }
 
-async function triggerContextSelection(worker, tabId, text) {
-  return worker.evaluate(async ({ tabId: selectedTabId, selectedText }) => {
+async function triggerContextMenu(worker, tabId, menuItemId, selectionText) {
+  return worker.evaluate(async ({ tabId: selectedTabId, menuItemId, selectionText }) => {
     const backgroundRouter = globalThis.__transmateTestRouter;
     if (!backgroundRouter?.onClicked) throw new Error('背景事件路由未导出');
     const tab = await chrome.tabs.get(selectedTabId);
     backgroundRouter.onClicked({
-      menuItemId: 'translate-selection',
-      selectionText: selectedText,
+      menuItemId,
+      selectionText,
+      pageUrl: tab.url,
     }, tab);
     return true;
-  }, { tabId, selectedText: text });
+  }, { tabId, menuItemId, selectionText });
 }
 
-async function triggerShortcutSelection(worker, tabId) {
-  return worker.evaluate(async (selectedTabId) => {
+async function triggerShortcut(worker, tabId, command = 'translate-selection') {
+  return worker.evaluate(async ({ tabId: selectedTabId, command }) => {
     const backgroundRouter = globalThis.__transmateTestRouter;
     if (!backgroundRouter?.onCommand) throw new Error('背景快捷键路由未导出');
     const tab = await chrome.tabs.get(selectedTabId);
-    backgroundRouter.onCommand('translate-selection', tab);
+    backgroundRouter.onCommand(command, tab);
     return true;
-  }, tabId);
+  }, { tabId, command });
 }
 
 const tempDir = await mkdtemp(join(tmpdir(), 'transmate-inline-'));
@@ -165,17 +269,16 @@ testManifest.host_permissions = [...new Set([
   'http://127.0.0.1/*',
 ])];
 await writeFile(testManifestPath, JSON.stringify(testManifest));
-// A service worker cannot import() a module from evaluate(). Expose the
-// production router only in this throwaway extension copy for menu simulation.
+// Expose the production router in the throwaway extension for menu simulation.
+// The test opens sidepanel.html as a tab because the Chrome container needs a
+// real menu gesture. Record each request to open the container here.
 const testBackgroundPath = join(testExtensionDir, 'background.js');
 await writeFile(testBackgroundPath,
   `${await readFile(testBackgroundPath, 'utf8')}\n` +
   `globalThis.__transmateTestRouter = backgroundRouter;
 globalThis.__transmateTestSidePanelOpens = 0;
-const __transmateOriginalSidePanelOpen = chrome.sidePanel.open.bind(chrome.sidePanel);
-chrome.sidePanel.open = (...args) => {
+chrome.sidePanel.open = async () => {
   globalThis.__transmateTestSidePanelOpens += 1;
-  return __transmateOriginalSidePanelOpen(...args);
 };
 `);
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -357,7 +460,7 @@ try {
 
   let selectedText = await selectFixtureText(inlinePage, 'inline-first');
   assert.equal(selectedText, 'inline hello');
-  await triggerContextSelection(worker, inlineTabId, selectedText);
+  await triggerContextMenu(worker, inlineTabId, 'translate-selection', selectedText);
   await inlineHost.locator('.result').waitFor({ state: 'visible' });
   assert.equal(await inlineHost.locator('.source').textContent(), selectedText);
   assert.equal(await inlineHost.locator('.result').textContent(), '页内译文');
@@ -403,11 +506,11 @@ try {
   await inlineHost.waitFor({ state: 'detached' });
 
   selectedText = await selectFixtureText(inlinePage, 'inline-slow');
-  await triggerContextSelection(worker, inlineTabId, selectedText);
+  await triggerContextMenu(worker, inlineTabId, 'translate-selection', selectedText);
   await inlineHost.locator('.loading').waitFor({ state: 'visible' });
   await waitUntil(() => requests.some((item) => item.text === 'inline slow'), '延迟页内请求已发出');
   selectedText = await selectFixtureText(inlinePage, 'inline-latest');
-  await triggerContextSelection(worker, inlineTabId, selectedText);
+  await triggerContextMenu(worker, inlineTabId, 'translate-selection', selectedText);
   await waitUntil(async () =>
     await inlineHost.locator('.result').isVisible()
     && await inlineHost.locator('.result').textContent() === '最新页内译文',
@@ -424,7 +527,7 @@ try {
   await inlinePage.keyboard.press('Escape');
   await inlineHost.waitFor({ state: 'detached' });
   selectedText = await selectFixtureText(inlinePage, 'inline-close-slow');
-  await triggerContextSelection(worker, inlineTabId, selectedText);
+  await triggerContextMenu(worker, inlineTabId, 'translate-selection', selectedText);
   await waitUntil(() => requests.some((item) => item.text === 'inline close slow'), '关闭前的页内请求已发出');
   await inlineHost.getByRole('button', { name: '关闭翻译' }).click();
   await inlineHost.waitFor({ state: 'detached' });
@@ -438,15 +541,23 @@ try {
 
   // The browser reserves native extension shortcuts, so invoke the registered
   // route directly while its selection reader and UI run in real page frames.
-  const shortcutCommand = await worker.evaluate(async () =>
-    (await chrome.commands.getAll()).find((command) => command.name === 'translate-selection'));
+  const commands = await worker.evaluate(() => chrome.commands.getAll());
+  const shortcutCommand = commands.find((command) => command.name === 'translate-selection');
   assert.ok(shortcutCommand, 'manifest 必须注册划词翻译快捷键');
   assert.match(shortcutCommand.shortcut,
     process.platform === 'darwin' ? /^(?:⌥|Option\+|Alt\+)1$/ : /^Ctrl\+Shift\+Y$/,
     'Chrome 必须实际分配当前平台的默认快捷键');
+  const pageCommand = commands.find((command) => command.name === 'translate-page');
+  assert.ok(pageCommand, 'manifest 必须注册整页双语翻译快捷键');
+  assert.match(pageCommand.shortcut, process.platform === 'darwin' ? /^(?:⌥|Option\+|Alt\+)2$/ : /^Ctrl\+Shift\+2$/,
+    'Chrome 应分配当前平台的整页翻译快捷键');
+  const summaryCommand = commands.find((command) => command.name === 'summarize-page');
+  assert.ok(summaryCommand, 'manifest 必须注册网页总结快捷键');
+  assert.match(summaryCommand.shortcut, process.platform === 'darwin' ? /^(?:⌥|Option\+|Alt\+)3$/ : /^Ctrl\+Shift\+3$/,
+    'Chrome 应分配当前平台的网页总结快捷键');
   await inlinePage.bringToFront();
   selectedText = await selectFixtureText(inlinePage, 'shortcut-paragraph');
-  await triggerShortcutSelection(worker, inlineTabId);
+  await triggerShortcut(worker, inlineTabId);
   await waitUntil(async () => await inlineHost.locator('.result').isVisible()
     && await inlineHost.locator('.result').textContent() === '快捷键段落译文',
   '快捷键翻译普通段落');
@@ -462,7 +573,7 @@ try {
     return input.value.slice(input.selectionStart, input.selectionEnd);
   });
   assert.equal(selectedText, 'shortcut input');
-  await triggerShortcutSelection(worker, inlineTabId);
+  await triggerShortcut(worker, inlineTabId);
   await waitUntil(async () => await inlineHost.locator('.result').isVisible()
     && await inlineHost.locator('.result').textContent() === '快捷键输入译文',
   '快捷键翻译输入框选文');
@@ -485,7 +596,7 @@ try {
     return window.getSelection()?.toString();
   });
   assert.equal(selectedText, 'shortcut frame');
-  await triggerShortcutSelection(worker, inlineTabId);
+  await triggerShortcut(worker, inlineTabId);
   await waitUntil(async () => await inlinePage.frameLocator('#shortcut-frame')
     .locator('#transmate-inline-host .result').isVisible()
     && await inlinePage.frameLocator('#shortcut-frame')
@@ -506,15 +617,152 @@ try {
   await shortcutFrameText.evaluate(() => window.getSelection()?.removeAllRanges());
   await inlinePage.locator('body').click({ position: { x: 4, y: 4 } });
   const beforeEmptyShortcut = requests.length;
-  await triggerShortcutSelection(worker, inlineTabId);
+  await triggerShortcut(worker, inlineTabId);
   await inlineHost.getByText(/请先选中文字/).waitFor({ state: 'visible' });
   assert.equal(requests.length, beforeEmptyShortcut, '空选文快捷键不得调用 AI 服务');
   assert.equal(context.pages().length, initialPageCount, '快捷键翻译不得新建窗口或标签页');
 
-  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、取消旧结果、重试、双窗口选文、页内划词浮层、快捷键翻译');
+  const articleUrl = new URL('/article-fixture', endpoint).href;
+  const [articlePage, articleTab] = await Promise.all([
+    context.waitForEvent('page', { timeout: 10000 }),
+    worker.evaluate(({ url, windowId }) => chrome.tabs.create({ url, windowId, active: true }), {
+      url: articleUrl, windowId: firstWindowId,
+    }),
+  ]);
+  await articlePage.waitForURL(articleUrl);
+  await articlePage.locator('#article-intro').waitFor();
+  const pageStatus = articlePage.locator('#transmate-page-status');
+  const pageTranslations = articlePage.locator('[data-transmate-page-translation]');
+  const pageRequestCount = requests.length;
+
+  await triggerContextMenu(worker, articleTab.id, 'translate-page');
+  await pageStatus.getByRole('button', { name: '移除译文' }).waitFor();
+  assert.deepEqual(await pageTranslations.allTextContents(), articleTranslations);
+  assert.equal(await articlePage.locator('#article-intro').textContent(), articleBlocks[1]);
+  assert.equal(await articlePage.locator('#article-intro a').getAttribute('href'), '#article-tip');
+  assert.equal(await articlePage.locator('#unexpected-page-markup').count(), 0, '模型译文必须按纯文本渲染');
+  assert.deepEqual(
+    requestedPageText(pageRequestCount),
+    articleBlocks,
+    '应按正文顺序发送文字，过滤隐藏、可编辑和导航内容',
+  );
+
+  const summaryRequestCount = requests.length;
+  await triggerContextMenu(worker, articleTab.id, 'summarize-page');
+  await waitUntil(async () => await panel.locator('#page-summary-text').isVisible()
+    && await panel.locator('#page-summary-text').textContent() === articleSummary,
+  '页面总结出现在发起操作的窗口');
+  assert.equal(await secondPanel.locator('#page-summary').isVisible(), false,
+    '页面总结不得显示在另一个窗口');
+  assert.equal(await worker.evaluate(() => globalThis.__transmateTestSidePanelOpens), 1,
+    '总结入口应打开侧栏');
+  assert.deepEqual(
+    requestedPageText(summaryRequestCount),
+    articleBlocks,
+    '有译文时总结应只使用页面正文',
+  );
+  assert.deepEqual(await pageTranslations.allTextContents(), articleTranslations,
+    '查看总结时保留已显示的双语段落');
+
+  const beforeSummaryShortcut = requests.length;
+  await triggerShortcut(worker, articleTab.id, 'summarize-page');
+  await waitUntil(async () => requests.length > beforeSummaryShortcut
+    && await panel.locator('#page-summary-text').isVisible()
+    && await panel.locator('#page-summary-text').textContent() === articleSummary,
+  '快捷键应在当前窗口侧栏显示网页重点');
+  assert.equal(await secondPanel.locator('#page-summary').isVisible(), false,
+    '快捷键总结不得显示在另一个窗口');
+  assert.equal(await worker.evaluate(() => globalThis.__transmateTestSidePanelOpens), 2,
+    '快捷键总结应打开侧栏');
+
+  const removePageTranslation = pageStatus.getByRole('button', { name: '移除译文' });
+  await removePageTranslation.evaluate((button) => button.click());
+  assert.equal(await removePageTranslation.isVisible(), true, '网页脚本不得触发移除译文');
+  await removePageTranslation.click();
+  await pageStatus.waitFor({ state: 'detached' });
+  assert.equal(await pageTranslations.count(), 0);
+  assert.equal(await articlePage.locator('#article-intro').textContent(), articleBlocks[1]);
+
+  delayedPageTranslation = { gate: deferred(), finished: deferred() };
+  const beforeDelayedPageRequest = requests.length;
+  await triggerContextMenu(worker, articleTab.id, 'translate-page');
+  await waitUntil(() => requests.length > beforeDelayedPageRequest, '延迟整页翻译请求已发出');
+  await pageStatus.getByRole('button', { name: '取消翻译' }).click();
+  await pageStatus.waitFor({ state: 'detached' });
+  delayedPageTranslation.gate.resolve();
+  await delayedPageTranslation.finished.promise;
+  delayedPageTranslation = undefined;
+  await articlePage.waitForTimeout(150);
+  assert.equal(await pageStatus.count(), 0, '取消后迟到的译文不得重新打开状态栏');
+  assert.equal(await pageTranslations.count(), 0, '取消后迟到的译文不得显示');
+
+  await triggerShortcut(worker, articleTab.id, 'translate-page');
+  await pageStatus.getByRole('button', { name: '移除译文' }).waitFor();
+  assert.deepEqual(await pageTranslations.allTextContents(), articleTranslations, '快捷键应翻译当前页正文');
+  await articlePage.evaluate(() => history.pushState({}, '', '/article-next'));
+  await pageStatus.waitFor({ state: 'detached' });
+  assert.equal(await pageTranslations.count(), 0, '页内路由变化应清理旧译文');
+  await panel.locator('#page-summary').waitFor({ state: 'hidden' });
+
+  const viewportUrl = new URL('/viewport-fixture', endpoint).href;
+  await articlePage.goto(viewportUrl);
+  await articlePage.bringToFront();
+  const prefetchParagraph = articlePage.locator('#viewport-prefetch');
+  assert.equal(await prefetchParagraph.evaluate((element) => element.getBoundingClientRect().top > innerHeight), true,
+    '预取段落应该在初始视口下方');
+
+  viewportStreamGate = deferred();
+  const viewportRequestCount = requests.length;
+  const initialViewportBlocks = viewportBlocks.slice(0, 3);
+  await triggerContextMenu(worker, articleTab.id, 'translate-page');
+  await pageTranslations.filter({ hasText: viewportBlocks[0][2] }).waitFor({ timeout: 6000 });
+  assert.equal(requests[viewportRequestCount].stream, true, '网页翻译应向 AI 服务请求流式响应');
+  assert.deepEqual(await pageTranslations.allTextContents(), [viewportBlocks[0][2]],
+    'AI 响应尚未结束时应该已经出现第一段译文');
+  viewportStreamGate.resolve();
+  viewportStreamGate = undefined;
+
+  await pageTranslations.filter({ hasText: viewportBlocks[2][2] }).waitFor({ timeout: 6000 });
+  await pageStatus.getByRole('button', { name: '移除译文' }).waitFor({ timeout: 6000 });
+  await articlePage.waitForTimeout(400);
+  assert.deepEqual(requestedPageText(viewportRequestCount), initialViewportBlocks.map(([, text]) => text),
+    '静止时仅发送可见段落和附近的预取段落');
+  assert.deepEqual(await pageTranslations.allTextContents(), initialViewportBlocks.map(([, , translation]) => translation));
+
+  const middleParagraph = articlePage.locator('#viewport-after-scroll');
+  const scrollDistance = await middleParagraph.evaluate((element) => element.getBoundingClientRect().top - 180);
+  await articlePage.mouse.move(220, 180);
+  await articlePage.mouse.wheel(0, scrollDistance);
+  await pageTranslations.filter({ hasText: viewportBlocks[3][2] }).waitFor({ timeout: 6000 });
+  await pageStatus.getByRole('button', { name: '移除译文' }).waitFor({ timeout: 6000 });
+  await articlePage.waitForTimeout(400);
+  const scrolledViewportBlocks = viewportBlocks.slice(0, 4);
+  assert.deepEqual(requestedPageText(viewportRequestCount), scrolledViewportBlocks.map(([, text]) => text),
+    '滚动后仅追加新到达的段落，远处内容继续等待');
+  assert.deepEqual(await pageTranslations.allTextContents(), scrolledViewportBlocks.map(([, , translation]) => translation));
+
+  const longSummaryRequestCount = requests.length;
+  await triggerContextMenu(worker, articleTab.id, 'summarize-page');
+  await panel.locator('#page-summary-text').waitFor({ state: 'visible' });
+  assert.deepEqual(requestedPageText(longSummaryRequestCount), viewportBlocks.map(([, text]) => text),
+    '长网页总结仍应读取整个页面正文');
+
+  const beforeChangedViewport = requests.length;
+  const changedParagraph = articlePage.locator('#viewport-distant');
+  const distanceToChanged = await changedParagraph.evaluate((element) => {
+    element.firstChild.data = 'The initial text has changed within this paragraph.';
+    return element.getBoundingClientRect().top - 180;
+  });
+  await articlePage.mouse.wheel(0, distanceToChanged);
+  await pageStatus.getByText('网页正文已变动，请重新启动翻译。').waitFor({ timeout: 6000 });
+  assert.equal(requests.length, beforeChangedViewport, '正文原位变动后不得发送已经过期的段落');
+
+  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、取消旧结果、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译和网页重点总结');
   console.log('Mock POST requests: ' + requests.map((item) => item.text).join(', '));
 } finally {
   releaseSlowResponse?.();
+  delayedPageTranslation?.gate.resolve();
+  viewportStreamGate?.resolve();
   for (const delayed of delayedInlineResponses.values()) delayed.gate.resolve();
   await context?.close();
   await new Promise((resolve) => server.close(resolve));

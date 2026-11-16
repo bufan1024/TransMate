@@ -104,15 +104,153 @@ const sender = (id = 17, frameId = 0, documentId = 'doc-' + id + '-' + frameId) 
 });
 const messages = (calls, type) => calls.messages.filter(({ message }) => message.type === type);
 
-test('installs selection menu, preserves toolbar side panel, and protects local settings', () => {
+function mockPageDemand(api, blocks) {
+  const sendMessage = api.tabs.sendMessage;
+  const completed = new Set();
+  let visible = blocks.slice(0, 1);
+  api.tabs.sendMessage = async (tabId, message, options) => {
+    await sendMessage(tabId, message, options);
+    const progress = { completed: completed.size, total: blocks.length, truncated: false };
+    if (message.type === 'TRANSMATE_PAGE_READ') return { ok: true, ...progress };
+    if (message.type === 'TRANSMATE_PAGE_NEXT') {
+      return { ok: true, ...progress, blocks: visible.filter(({ id }) => !completed.has(id)) };
+    }
+    if (message.type === 'TRANSMATE_PAGE_APPEND') {
+      for (const { id } of message.translations) completed.add(id);
+      return { ok: true, completed: completed.size };
+    }
+    return { ok: true };
+  };
+  return { reveal: (index) => { visible = blocks.slice(index, index + 1); } };
+}
+
+test('installs selection and page menus, preserves toolbar side panel, and protects local settings', () => {
   const { api, calls, listeners } = fakeChrome();
   registerBackground(api);
   listeners.installed();
   assert.deepEqual(calls.menus, [
     { id: 'translate-selection', title: '用 TransMate 翻译', contexts: ['selection'] },
+    { id: 'translate-page', title: '整页双语翻译', contexts: ['page'], documentUrlPatterns: ['http://*/*', 'https://*/*'] },
+    { id: 'summarize-page', title: '总结网页重点', contexts: ['page'], documentUrlPatterns: ['http://*/*', 'https://*/*'] },
   ]);
   assert.deepEqual(calls.behavior, [{ openPanelOnActionClick: true }]);
   assert.deepEqual(calls.accessLevels, [{ accessLevel: 'TRUSTED_CONTEXTS' }]);
+});
+
+test('page summary hands off only a reference to the originating document', async () => {
+  const { api, calls } = fakeChrome();
+  const router = registerBackground(api);
+  await router.onClicked({ menuItemId: 'summarize-page' }, tab());
+
+  assert.deepEqual(calls.opens, [{ windowId: 7 }]);
+  assert.deepEqual(calls.injections, [{ target: { tabId: 17, frameIds: [0] }, files: ['page-content.js'] }]);
+  assert.equal(calls.messages.length, 0);
+  const [[key, value]] = Object.entries(calls.writes[0]);
+  assert.equal(key, `pendingPageSummary:7:${value.requestId}`);
+  assert.deepEqual(value, {
+    windowId: 7, tabId: 17, documentId: 'doc-17-0',
+    requestId: value.requestId, order: value.order, createdAt: value.createdAt,
+  });
+});
+
+test('summary shortcut opens the side panel within the command gesture and reads the originating page', async () => {
+  const { api, calls } = fakeChrome();
+  const router = registerBackground(api);
+  const operation = router.onCommand('summarize-page', tab());
+  assert.deepEqual(calls.opens, [{ windowId: 7 }]);
+  assert.equal(calls.queries.length, 0);
+
+  await operation;
+  const [[key, value]] = Object.entries(calls.writes[0]);
+  assert.equal(key, `pendingPageSummary:7:${value.requestId}`);
+  assert.equal(value.tabId, 17);
+  assert.equal(value.documentId, 'doc-17-0');
+  assert.equal(calls.injections.length, 1);
+  assert.equal(calls.injections[0].files[0], 'page-content.js');
+});
+
+test('page translation pauses outside the viewport and resumes after a worker restart for its original document', async () => {
+  const { api, calls, sessionState } = fakeChrome();
+  const blocks = [{ id: 1, text: 'first viewport' }, { id: 2, text: 'second viewport' }];
+  const { reveal } = mockPageDemand(api, blocks);
+  const requested = [];
+  const dependencies = {
+    translatePageImpl: async ({ blocks, onChunk }) => {
+      requested.push(blocks);
+      await onChunk(blocks.map(({ id }) => ({ id, text: `译文 ${id}` })));
+    },
+  };
+
+  await registerBackground(api, dependencies).onCommand('translate-page', tab());
+  assert.deepEqual(requested, [[blocks[0]]]);
+  assert.equal(messages(calls, 'TRANSMATE_PAGE_STATUS').at(-1).message.status, 'paused');
+  const [key] = Object.keys(sessionState);
+  const { requestId } = sessionState[key];
+  assert.deepEqual(Object.keys(sessionState[key]).sort(), ['documentId', 'order', 'requestId', 'tabId']);
+
+  const restarted = registerBackground(api, dependencies);
+  reveal(1);
+  const more = { type: 'TRANSMATE_PAGE_MORE', requestId };
+  await restarted.onMessage(more, sender(17, 0, 'different-document'));
+  await restarted.onMessage(more, sender(17, 1, 'doc-17-0'));
+  assert.equal(requested.length, 1);
+  await restarted.onMessage(more, sender());
+  assert.deepEqual(requested, [[blocks[0]], [blocks[1]]]);
+  assert.equal(messages(calls, 'TRANSMATE_PAGE_STATUS').at(-1).message.status, 'success');
+  await restarted.onMessage({ type: 'TRANSMATE_PAGE_CANCEL', requestId }, sender());
+  assert.deepEqual(sessionState, {});
+});
+
+test('closing a page translation aborts the active stream and discards a late chunk', async () => {
+  const { api, calls, sessionState } = fakeChrome();
+  mockPageDemand(api, [{ id: 1, text: 'first viewport' }]);
+  const started = deferred();
+  const finish = deferred();
+  const router = registerBackground(api, {
+    translatePageImpl: async ({ signal, onChunk }) => {
+      started.resolve(signal);
+      await finish.promise;
+      await onChunk([{ id: 1, text: '迟到的译文' }]);
+    },
+  });
+  const operation = router.onClicked({ menuItemId: 'translate-page' }, tab());
+  const signal = await started.promise;
+  const { requestId } = Object.values(sessionState)[0];
+  await router.onMessage({ type: 'TRANSMATE_PAGE_CANCEL', requestId }, sender());
+  assert.equal(signal.aborted, true);
+  finish.resolve();
+  await operation;
+  assert.deepEqual(messages(calls, 'TRANSMATE_PAGE_APPEND'), []);
+  assert.deepEqual(sessionState, {});
+});
+
+test('settings changes retire an idle page translation before it can resume', async () => {
+  const requestId = 'idle-request';
+  const key = `pageTranslation:17:${requestId}`;
+  const { api, calls, listeners, sessionState } = fakeChrome({
+    session: { [key]: { tabId: 17, documentId: 'doc-17-0', requestId, order: Date.now() * 1000 - 1 } },
+  });
+  const router = registerBackground(api);
+  listeners.storageChanged({ settings: { newValue: {} } }, 'local');
+  await router.onMessage({ type: 'TRANSMATE_PAGE_MORE', requestId }, sender());
+  await waitFor(() => messages(calls, 'TRANSMATE_PAGE_CLEAR').length === 1);
+  assert.equal(messages(calls, 'TRANSMATE_PAGE_NEXT').length, 0);
+  assert.equal(sessionState[key], undefined);
+});
+
+test('navigation while opening the page summary discards the old request', async () => {
+  const { api, calls, listeners } = fakeChrome();
+  const panel = deferred();
+  api.sidePanel.open = () => panel.promise;
+  const router = registerBackground(api);
+
+  const pendingSummary = router.onClicked({ menuItemId: 'summarize-page' }, tab());
+  await waitFor(() => calls.injections.length === 1);
+  listeners.updated(17, { status: 'loading' });
+  panel.resolve();
+  await pendingSummary;
+
+  assert.equal(calls.writes.length, 0);
 });
 
 test('right-click uses inline SHOW and RESULT without opening panel or leaking API Key', async () => {

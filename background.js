@@ -1,4 +1,5 @@
 import { selectionStorageKey, selectionWindowIdFromKey, shouldAcceptSelection } from './lib/selection.js';
+import { createPageActions, PAGE_TRANSLATION_MENU, PAGE_SUMMARY_MENU } from './lib/page-actions.js';
 import { translate } from './lib/translator.js';
 
 const MENU_ID = 'translate-selection';
@@ -48,7 +49,9 @@ function isInjectableUrl(url) {
   }
 }
 
-export function registerBackground(chromeApi, { translateImpl = translate, timeoutMs = INLINE_TIMEOUT_MS } = {}) {
+export function registerBackground(chromeApi, {
+  translateImpl = translate, timeoutMs = INLINE_TIMEOUT_MS, translatePageImpl,
+} = {}) {
   let lastSelectionOrder = 0;
   let lastInlineOrder = 0;
   const activeByTab = new Map();
@@ -59,6 +62,9 @@ export function registerBackground(chromeApi, { translateImpl = translate, timeo
     chromeApi.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }),
     chromeApi.storage.session.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' }),
   ]).then(() => true, () => false);
+  const pageActions = createPageActions(chromeApi, {
+    privateStorageReady, nextOrder: nextInlineOrder, isInjectableUrl, translatePageImpl,
+  });
 
   chromeApi.runtime.onInstalled.addListener(() => {
     chromeApi.contextMenus.create({
@@ -66,6 +72,11 @@ export function registerBackground(chromeApi, { translateImpl = translate, timeo
       title: '用 TransMate 翻译',
       contexts: ['selection'],
     });
+    for (const [id, title] of [[PAGE_TRANSLATION_MENU, '整页双语翻译'], [PAGE_SUMMARY_MENU, '总结网页重点']]) {
+      chromeApi.contextMenus.create({
+        id, title, contexts: ['page'], documentUrlPatterns: ['http://*/*', 'https://*/*'],
+      });
+    }
   });
 
   chromeApi.sidePanel
@@ -304,6 +315,8 @@ export function registerBackground(chromeApi, { translateImpl = translate, timeo
   }
 
   async function onClicked(info, tab) {
+    if (info.menuItemId === PAGE_TRANSLATION_MENU) return pageActions.startTranslation(tab);
+    if (info.menuItemId === PAGE_SUMMARY_MENU) return pageActions.openSummary(tab);
     if (info.menuItemId !== MENU_ID || !info.selectionText?.trim()) return;
     const text = info.selectionText.trim();
     const tabId = tab?.id;
@@ -319,13 +332,15 @@ export function registerBackground(chromeApi, { translateImpl = translate, timeo
   }
 
   async function onCommand(command, commandTab) {
-    if (command !== MENU_ID) return;
+    if (command !== MENU_ID && command !== PAGE_TRANSLATION_MENU && command !== PAGE_SUMMARY_MENU) return;
     const order = nextInlineOrder();
     let tab = commandTab;
     if (!Number.isInteger(tab?.id)) {
       const tabs = await chromeApi.tabs.query({ active: true, currentWindow: true });
       tab = tabs?.[0];
     }
+    if (command === PAGE_TRANSLATION_MENU) return pageActions.startTranslation(tab);
+    if (command === PAGE_SUMMARY_MENU) return pageActions.openSummary(tab);
     if (!Number.isInteger(tab?.id) || !claimIntent(tab.id, order)) return;
     if (!isInjectableUrl(tab.url)) {
       chromeApi.sidePanel.open({ windowId: tab.windowId })
@@ -390,6 +405,9 @@ export function registerBackground(chromeApi, { translateImpl = translate, timeo
 
   async function onMessage(message, sender) {
     if (!message || typeof message !== 'object') return;
+    if (message.type === 'TRANSMATE_PAGE_CANCEL' || message.type === 'TRANSMATE_PAGE_MORE') {
+      return pageActions.handleMessage(message, sender);
+    }
     const entry = await recoverEntry(message, sender);
     if (!entry || !senderMatches(entry, sender)) return;
 
@@ -433,15 +451,20 @@ export function registerBackground(chromeApi, { translateImpl = translate, timeo
   }
 
   chromeApi.contextMenus.onClicked.addListener((info, tab) => {
-    void onClicked(info, tab).catch(() => console.warn('无法处理划词翻译'));
+    void onClicked(info, tab).catch(() => console.warn('无法执行 TransMate 网页操作'));
   });
   chromeApi.commands.onCommand.addListener((command, tab) => {
     void onCommand(command, tab).catch(() => console.warn('无法处理快捷键翻译'));
   });
-  chromeApi.runtime.onMessage.addListener((message, sender) => {
+  chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.type === 'TRANSMATE_PAGE_MORE') {
+      void onMessage(message, sender).then(() => sendResponse?.(), () => sendResponse?.());
+      return true;
+    }
     void onMessage(message, sender).catch(() => console.warn('无法处理翻译浮层操作'));
   });
   chromeApi.tabs.onRemoved?.addListener((tabId) => {
+    pageActions.leavePage(tabId, { clear: false });
     latestIntentByTab.delete(tabId);
     const entry = activeByTab.get(tabId);
     if (entry) cancel(entry);
@@ -449,6 +472,7 @@ export function registerBackground(chromeApi, { translateImpl = translate, timeo
   });
   chromeApi.tabs.onUpdated?.addListener((tabId, changeInfo) => {
     if (!changeInfo.url && changeInfo.status !== 'loading') return;
+    pageActions.leavePage(tabId);
     latestIntentByTab.delete(tabId);
     const entry = activeByTab.get(tabId);
     if (entry) cancel(entry, { hide: true });
@@ -471,6 +495,7 @@ export function registerBackground(chromeApi, { translateImpl = translate, timeo
 
   chromeApi.storage.onChanged?.addListener((changes, area) => {
     if (area !== 'local' || !changes.settings) return;
+    pageActions.cancelAll();
     for (const entry of activeByTab.values()) invalidate(entry);
     // MV3 may have restarted the worker while a completed card remained open.
     // Restore those cards from session storage so a settings change clears them.

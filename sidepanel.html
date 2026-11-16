@@ -33,6 +33,18 @@
           <button id="banner-settings" type="button">去设置 <span aria-hidden="true">↗</span></button>
         </div>
 
+        <section class="page-summary" id="page-summary" aria-labelledby="page-summary-title" hidden>
+          <h2 id="page-summary-title">网页重点</h2>
+          <div aria-live="polite">
+            <p class="page-summary-status" id="page-summary-status"></p>
+            <p class="result-text" id="page-summary-text" hidden></p>
+          </div>
+          <div class="result-actions">
+            <button class="secondary-button" id="page-summary-cancel" type="button" hidden>取消总结</button>
+            <button class="secondary-button" id="page-summary-copy" type="button" hidden>复制总结</button>
+          </div>
+        </section>
+
         <section class="translator-card" aria-label="翻译工作区">
           <div class="section-label"><span class="section-index">01</span><span>原文</span><span class="section-rule"></span><span id="source-count">0 字</span></div>
           <label class="sr-only" for="source-text">需要翻译的文字</label>
