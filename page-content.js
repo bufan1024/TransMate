@@ -26,7 +26,8 @@
   const TRANSLATE_AFTER = 'p, h1, h2, h3, h4, h5, h6, pre, blockquote, a';
   const SCROLLABLE_OVERFLOW = new Set(['auto', 'scroll', 'overlay']);
   const STATUS_LABELS = {
-    reading: '取消翻译', translating: '取消翻译', paused: '移除译文', success: '移除译文', error: '关闭',
+    reading: '取消翻译', translating: '取消翻译', paused: '移除译文', success: '移除译文',
+    retryable: '关闭', error: '关闭',
   };
 
   let session = null;
@@ -213,10 +214,12 @@
   }
 
   function sendPageEvent(type, requestId) {
-    if (chrome.runtime?.id) void chrome.runtime.sendMessage({ type, requestId }).catch(() => {});
+    if (!chrome.runtime?.id) return Promise.resolve();
+    return chrome.runtime.sendMessage({ type, requestId }).catch(() => {});
   }
 
   function observeScroll(entry) {
+    if (entry.onScroll) return;
     entry.onScroll = ({ target }) => {
       const scroller = target === document ? document.scrollingElement : target;
       const before = entry.scrollPositions.get(scroller);
@@ -234,6 +237,7 @@
 
   function stopObserving(entry) {
     if (entry.onScroll) document.removeEventListener('scroll', entry.onScroll, true);
+    entry.onScroll = null;
     clearTimeout(entry.scrollTimer);
   }
 
@@ -266,25 +270,31 @@
     }
     if (mode !== 'summary') clearSession();
     const { blocks, anchors, truncated } = extractPage();
-    if (!blocks.length) return { ok: false, error: '此页面没有可处理的正文。' };
+    if (!blocks.length) return { ok: false, error: '此页面没有可处理的正文。请在有正文的网页上重试。' };
     if (mode === 'summary') return { ok: true, blocks, truncated };
     const range = document.createRange();
     for (const anchor of anchors.values()) {
       selectSource(range, anchor);
       anchor.originalText = range.toString();
     }
-    session = { requestId, blocks, anchors, truncated, demand: new Set(), inserted: new Map(), renderedByAnchor: new Map() };
+    session = {
+      requestId, blocks, anchors, truncated, demand: new Set(), lastBatch: new Set(),
+      inserted: new Map(), renderedByAnchor: new Map(),
+    };
     captureDemand(session);
     observeScroll(session);
     return { ok: true, total: blocks.length, completed: 0, truncated };
   }
 
-  function next({ requestId }) {
+  function next({ requestId, retry }) {
     if (!session || session.requestId !== requestId) return { ok: false, error: '此页面翻译已结束。' };
-    const { blocks, anchors, demand, inserted, truncated } = session;
-    const requested = blocks.filter(({ id }) => demand.has(id) && !inserted.has(id)).slice(0, MAX_BLOCKS_PER_VIEW);
+    const { blocks, anchors, demand, lastBatch, inserted, truncated } = session;
+    const requestedIds = retry ? lastBatch : demand;
+    const requested = blocks.filter(({ id }) => requestedIds.has(id) && !inserted.has(id)).slice(0, MAX_BLOCKS_PER_VIEW);
     const range = document.createRange();
     if (requested.some(({ id }) => !sourceMatches(range, anchors.get(id)))) return { ok: false, error: PAGE_CHANGED };
+    if (retry) captureDemand(session);
+    session.lastBatch = new Set(requested.map(({ id }) => id));
     return { ok: true, blocks: requested, total: blocks.length, completed: inserted.size, truncated };
   }
 
@@ -335,7 +345,10 @@
     if (status?.requestId !== requestId && kind !== 'reading' && session?.requestId !== requestId) {
       return { ok: false };
     }
-    if ((kind === 'success' || kind === 'error') && session?.requestId === requestId) stopObserving(session);
+    if (session?.requestId === requestId) {
+      if (kind === 'success' || kind === 'error' || kind === 'retryable') stopObserving(session);
+      else if (kind === 'translating' || kind === 'paused') observeScroll(session);
+    }
     if (status?.requestId !== requestId || !status.host.isConnected) {
       status?.host.remove();
       const host = document.createElement('div');
@@ -349,6 +362,7 @@
           border-radius: 10px; background: #fffdf8; color: #20231f; box-shadow: 0 4px 18px #20231f26;
           font: 13px/1.5 system-ui, sans-serif; }
         span { overflow-wrap: anywhere; }
+        .actions { display: inline-flex; gap: 6px; flex: none; }
         button { flex: none; border: 1px solid #e5dfd3; border-radius: 6px; background: #fffdf8;
           color: #20231f; padding: 5px 8px; font: inherit; cursor: pointer; }
         button:hover { background: #f5f1e8; }
@@ -363,13 +377,28 @@
         if (!event.isTrusted || status?.requestId !== requestId) return;
         dismiss(requestId);
       });
-      card.append(label, button);
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.textContent = '重试未完成段落';
+      retry.addEventListener('click', (event) => {
+        if (!event.isTrusted || status?.requestId !== requestId || status.kind !== 'retryable' || retry.disabled) return;
+        retry.disabled = true;
+        void sendPageEvent('TRANSMATE_PAGE_RETRY', requestId).finally(() => { retry.disabled = false; });
+      });
+      const actions = document.createElement('span');
+      actions.className = 'actions';
+      actions.append(retry, button);
+      card.append(label, actions);
       shadow.append(style, card);
       (document.body || document.documentElement).append(host);
-      status = { requestId, host, label, button };
+      status = { requestId, host, label, button, retry };
     }
+    const retryHadFocus = status.host.shadowRoot.activeElement === status.retry;
+    status.kind = kind;
     status.label.textContent = typeof message === 'string' ? message : '';
     status.button.textContent = STATUS_LABELS[kind];
+    status.retry.hidden = kind !== 'retryable';
+    if (retryHadFocus && status.retry.hidden) status.button.focus({ preventScroll: true });
     return { ok: true };
   }
 

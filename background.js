@@ -488,7 +488,8 @@ export function registerBackground(chromeApi, {
   async function onMessage(message, sender) {
     if (!message || typeof message !== 'object') return;
     if (message.type === PANEL_PAGE_ACTION) return handlePanelPageAction(message, sender);
-    if (message.type === 'TRANSMATE_PAGE_CANCEL' || message.type === 'TRANSMATE_PAGE_MORE') {
+    if (message.type === 'TRANSMATE_PAGE_CANCEL' || message.type === 'TRANSMATE_PAGE_MORE'
+        || message.type === 'TRANSMATE_PAGE_RETRY') {
       return pageActions.handleMessage(message, sender);
     }
     const switching = message.type === INLINE_SWITCH_LANGUAGE;
@@ -529,7 +530,7 @@ export function registerBackground(chromeApi, {
       void onMessage(message, sender).then(sendResponse, () => sendResponse({ ok: false }));
       return true;
     }
-    if (message?.type === 'TRANSMATE_PAGE_MORE') {
+    if (message?.type === 'TRANSMATE_PAGE_MORE' || message?.type === 'TRANSMATE_PAGE_RETRY') {
       void onMessage(message, sender).then(() => sendResponse?.(), () => sendResponse?.());
       return true;
     }

@@ -26,7 +26,7 @@ function fakeChrome({
   const listeners = {};
   const calls = {
     menus: [], behavior: [], accessLevels: [], injections: [], messages: [],
-    writes: [], opens: [], removals: [], queries: [], options: 0,
+    writes: [], opens: [], removals: [], queries: [], badges: [], titles: [], options: 0,
   };
   const api = {
     runtime: {
@@ -40,6 +40,10 @@ function fakeChrome({
     },
     commands: {
       onCommand: { addListener: (fn) => { listeners.command = fn; } },
+    },
+    action: {
+      setBadgeText: async (details) => { calls.badges.push(details); },
+      setTitle: async (details) => { calls.titles.push(details); },
     },
     sidePanel: {
       setPanelBehavior: (value) => { calls.behavior.push(value); return Promise.resolve(); },
@@ -122,7 +126,7 @@ function mockPageDemand(api, blocks) {
     }
     return { ok: true };
   };
-  return { reveal: (index) => { visible = blocks.slice(index, index + 1); } };
+  return { reveal: (...indices) => { visible = indices.map((index) => blocks[index]); } };
 }
 
 test('side panel starts page actions only for the active tab in its window', async () => {
@@ -231,6 +235,62 @@ test('page translation pauses outside the viewport and resumes after a worker re
   assert.equal(messages(calls, 'TRANSMATE_PAGE_STATUS').at(-1).message.status, 'success');
   await restarted.onMessage({ type: 'TRANSMATE_PAGE_CANCEL', requestId }, sender());
   assert.deepEqual(sessionState, {});
+});
+
+test('page translation retry preserves completed blocks and requires explicit action after worker restart', async () => {
+  const { api, calls, sessionState } = fakeChrome();
+  const blocks = [{ id: 1, text: 'first' }, { id: 2, text: 'second' }];
+  mockPageDemand(api, blocks).reveal(0, 1);
+  const requested = [];
+  const finishRetry = deferred();
+  const dependencies = {
+    translatePageImpl: async ({ blocks: requestedBlocks, onChunk }) => {
+      requested.push(requestedBlocks);
+      if (requested.length === 1) {
+        await onChunk([{ id: 1, text: '保留的译文' }]);
+        throw new Error('AI 服务暂时异常。');
+      }
+      await finishRetry.promise;
+      await onChunk([{ id: 2, text: '重试后的译文' }]);
+    },
+  };
+  await registerBackground(api, dependencies).onCommand('translate-page', tab());
+  assert.equal(messages(calls, 'TRANSMATE_PAGE_STATUS').at(-1).message.status, 'retryable');
+  const [record] = Object.values(sessionState);
+  const { requestId } = record;
+  assert.equal(record.retryable, true);
+  assert.equal(messages(calls, 'TRANSMATE_PAGE_CLEAR').length, 0);
+
+  const restarted = registerBackground(api, dependencies);
+  await restarted.onMessage({ type: 'TRANSMATE_PAGE_MORE', requestId }, sender());
+  const retry = { type: 'TRANSMATE_PAGE_RETRY', requestId };
+  await restarted.onMessage(retry, sender(17, 0, 'different-document'));
+  await restarted.onMessage(retry, sender(17, 1, 'doc-17-0'));
+  assert.deepEqual(requested, [blocks]);
+
+  const retried = restarted.onMessage(retry, sender());
+  await waitFor(() => requested.length === 2);
+  await restarted.onMessage(retry, sender());
+  assert.deepEqual(requested, [blocks, [blocks[1]]]);
+  assert.equal(messages(calls, 'TRANSMATE_PAGE_NEXT').at(-1).message.retry, true);
+  finishRetry.resolve();
+  await retried;
+  assert.equal(messages(calls, 'TRANSMATE_PAGE_STATUS').at(-1).message.status, 'success');
+  assert.equal(Object.values(sessionState)[0].retryable, undefined);
+});
+
+test('page translation reports an injection failure on the toolbar and clears it on navigation', async () => {
+  const { api, calls, listeners } = fakeChrome({
+    inject: () => { throw new Error('sensitive tab information'); },
+  });
+  const router = registerBackground(api);
+  await router.onCommand('translate-page', tab());
+  assert.deepEqual(calls.badges.at(-1), { tabId: 17, text: '!' });
+  assert.match(calls.titles.at(-1).title, /普通网页上重试/);
+  assert.doesNotMatch(calls.titles.at(-1).title, /sensitive/);
+  assert.equal(messages(calls, 'TRANSMATE_PAGE_NEXT').length, 0);
+  listeners.updated(17, { status: 'loading' });
+  assert.deepEqual(calls.badges.at(-1), { tabId: 17, text: '' });
 });
 
 test('closing a page translation aborts the active stream and discards a late chunk', async () => {
