@@ -405,7 +405,8 @@ export function registerBackground(chromeApi, {
 
   async function onMessage(message, sender) {
     if (!message || typeof message !== 'object') return;
-    if (message.type === 'TRANSMATE_PAGE_CANCEL' || message.type === 'TRANSMATE_PAGE_MORE') {
+    if (message.type === 'TRANSMATE_PAGE_CANCEL' || message.type === 'TRANSMATE_PAGE_MORE'
+        || message.type === 'TRANSMATE_PAGE_RETRY') {
       return pageActions.handleMessage(message, sender);
     }
     const entry = await recoverEntry(message, sender);
@@ -457,7 +458,7 @@ export function registerBackground(chromeApi, {
     void onCommand(command, tab).catch(() => console.warn('无法处理快捷键翻译'));
   });
   chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message?.type === 'TRANSMATE_PAGE_MORE') {
+    if (message?.type === 'TRANSMATE_PAGE_MORE' || message?.type === 'TRANSMATE_PAGE_RETRY') {
       void onMessage(message, sender).then(() => sendResponse?.(), () => sendResponse?.());
       return true;
     }

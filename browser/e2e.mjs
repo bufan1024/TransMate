@@ -95,6 +95,7 @@ let releaseSlowResponse;
 let finishSlowResponse;
 let delayedPageTranslation;
 let viewportStreamGate;
+let interruptViewportStream = false;
 const slowResponseFinished = new Promise((resolve) => { finishSlowResponse = resolve; });
 const delayedInlineResponses = new Map([
   ['inline slow', { gate: deferred(), finished: deferred() }],
@@ -155,6 +156,11 @@ const server = createServer(async (request, response) => {
         response.write(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`);
         if (block === viewportBlocks[0][1] && viewportStreamGate) await viewportStreamGate.promise;
         if (response.destroyed) return;
+        if (block === viewportBlocks[0][1] && interruptViewportStream) {
+          interruptViewportStream = false;
+          response.end('data: [DONE]\n\n');
+          return;
+        }
       }
       response.write('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n');
       response.end('data: [DONE]\n\n');
@@ -719,16 +725,32 @@ try {
   assert.equal(requests[viewportRequestCount].stream, true, '网页翻译应向 AI 服务请求流式响应');
   assert.deepEqual(await pageTranslations.allTextContents(), [viewportBlocks[0][2]],
     'AI 响应尚未结束时应该已经出现第一段译文');
+  interruptViewportStream = true;
   viewportStreamGate.resolve();
   viewportStreamGate = undefined;
+
+  const retryPage = pageStatus.getByRole('button', { name: '重试未完成段落' });
+  await retryPage.waitFor({ timeout: 6000 });
+  const originalTranslation = await pageTranslations.first().elementHandle();
+  assert.ok(originalTranslation, '失败时应保留已翻译的段落');
+  assert.deepEqual(requestedPageText(viewportRequestCount), initialViewportBlocks.map(([, text]) => text),
+    '第一次请求仅发送可见段落和附近的预取段落');
+  const beforePageRetry = requests.length;
+  await retryPage.evaluate((button) => button.click());
+  await articlePage.waitForTimeout(150);
+  assert.equal(requests.length, beforePageRetry, '网页脚本合成点击不得触发重试');
+  await retryPage.click();
 
   await pageTranslations.filter({ hasText: viewportBlocks[2][2] }).waitFor({ timeout: 6000 });
   await pageStatus.getByRole('button', { name: '移除译文' }).waitFor({ timeout: 6000 });
   await articlePage.waitForTimeout(400);
-  assert.deepEqual(requestedPageText(viewportRequestCount), initialViewportBlocks.map(([, text]) => text),
-    '静止时仅发送可见段落和附近的预取段落');
+  assert.deepEqual(requestedPageText(beforePageRetry), initialViewportBlocks.slice(1).map(([, text]) => text),
+    '只重试失败请求中未翻译完成的段落');
+  assert.equal(await originalTranslation.evaluate((element) => element.isConnected), true,
+    '重试期间保留原来的译文节点');
   assert.deepEqual(await pageTranslations.allTextContents(), initialViewportBlocks.map(([, , translation]) => translation));
 
+  const beforeViewportScroll = requests.length;
   const middleParagraph = articlePage.locator('#viewport-after-scroll');
   const scrollDistance = await middleParagraph.evaluate((element) => element.getBoundingClientRect().top - 180);
   await articlePage.mouse.move(220, 180);
@@ -737,8 +759,8 @@ try {
   await pageStatus.getByRole('button', { name: '移除译文' }).waitFor({ timeout: 6000 });
   await articlePage.waitForTimeout(400);
   const scrolledViewportBlocks = viewportBlocks.slice(0, 4);
-  assert.deepEqual(requestedPageText(viewportRequestCount), scrolledViewportBlocks.map(([, text]) => text),
-    '滚动后仅追加新到达的段落，远处内容继续等待');
+  assert.deepEqual(requestedPageText(beforeViewportScroll), [viewportBlocks[3][1]],
+    '重试后滚动恢复，仅追加新到达的段落');
   assert.deepEqual(await pageTranslations.allTextContents(), scrolledViewportBlocks.map(([, , translation]) => translation));
 
   const longSummaryRequestCount = requests.length;
@@ -757,7 +779,7 @@ try {
   await pageStatus.getByText('网页正文已变动，请重新启动翻译。').waitFor({ timeout: 6000 });
   assert.equal(requests.length, beforeChangedViewport, '正文原位变动后不得发送已经过期的段落');
 
-  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、取消旧结果、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译和网页重点总结');
+  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、取消旧结果、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译、整页失败恢复和网页重点总结');
   console.log('Mock POST requests: ' + requests.map((item) => item.text).join(', '));
 } finally {
   releaseSlowResponse?.();
