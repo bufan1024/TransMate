@@ -42,6 +42,36 @@ test('translate sends a non-streaming Chat Completions request and returns its t
   assert.equal(body.messages[1].content, 'Hello, world!');
 });
 
+test('translate emits stream deltas and returns the complete text when the service finishes', async () => {
+  const deltas = [];
+  const events = [
+    { choices: [{ delta: { content: '你好，' } }] },
+    { choices: [{ delta: { content: '世界！' }, finish_reason: 'stop' }] },
+  ];
+  const response = new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''), {
+    headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
+  });
+  const result = await translate({
+    text: 'Hello, world!', settings, onDelta: (delta) => deltas.push(delta),
+    fetchImpl: async (_url, options) => {
+      assert.equal(JSON.parse(options.body).stream, true);
+      return response;
+    },
+  });
+  assert.deepEqual(deltas, ['你好，', '世界！']);
+  assert.equal(result, '你好，世界！');
+});
+
+test('streaming translation accepts a complete JSON fallback without emitting partial results', async () => {
+  const result = await translate({
+    text: 'Hello', settings, onDelta: () => assert.fail('JSON is already complete'),
+    fetchImpl: async () => new Response(JSON.stringify({ choices: [{ message: { content: '你好' } }] }), {
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  });
+  assert.equal(result, '你好');
+});
+
 test('translate rejects empty and overlong text before a network request', async () => {
   let calls = 0;
   const fetchImpl = async () => { calls += 1; throw new Error('should not fetch'); };

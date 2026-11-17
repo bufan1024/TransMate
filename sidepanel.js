@@ -21,6 +21,7 @@ const elements = {
   loading: document.querySelector("#result-loading"),
   stopped: document.querySelector("#result-stopped"),
   result: document.querySelector("#result-text"),
+  preview: document.querySelector("#result-preview"),
   error: document.querySelector("#result-error"),
   errorMessage: document.querySelector("#error-message"),
   banner: document.querySelector("#connection-banner"),
@@ -88,6 +89,8 @@ function updateControls() {
 function showResult(kind, value = "") {
   elements.empty.hidden = kind !== "empty";
   elements.loading.hidden = kind !== "loading";
+  elements.preview.textContent = "";
+  elements.preview.hidden = true;
   elements.stopped.hidden = kind !== "stopped";
   elements.result.hidden = kind !== "success";
   elements.error.hidden = kind !== "error";
@@ -154,7 +157,16 @@ async function runTranslation(text) {
   updateControls();
 
   try {
-    const result = await translate({ text: trimmed, settings: config, signal: controller.signal });
+    const result = await translate({
+      text: trimmed,
+      settings: config,
+      signal: controller.signal,
+      onDelta: (delta) => {
+        if (thisRequest !== requestNumber || controller.signal.aborted) return;
+        elements.preview.append(delta);
+        elements.preview.hidden = false;
+      },
+    });
     if (thisRequest !== requestNumber) return;
     translation = result;
     showResult("success", result);

@@ -266,6 +266,10 @@ export function registerBackground(chromeApi, {
           settings,
           permissionsApi: chromeApi.permissions,
           signal: controller.signal,
+          onDelta: async (delta) => {
+            if (!current(entry) || controller.signal.aborted) return;
+            await send(entry, { type: 'TRANSMATE_INLINE_PROGRESS', requestId: entry.requestId, delta });
+          },
         }),
         interrupted,
       ]);
