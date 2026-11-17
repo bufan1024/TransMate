@@ -27,6 +27,7 @@ function fakeElement() {
       for (const listener of listeners.get(event.type) || []) listener(event);
     },
     click() { this.dispatchEvent({ type: 'click' }); },
+    focus() { globalThis.document.activeElement = this; },
   };
 }
 
@@ -41,6 +42,7 @@ async function mountSidepanel() {
   let onStorageChanged;
 
   globalThis.document = {
+    activeElement: null,
     querySelector(selector) {
       if (!elements.has(selector)) elements.set(selector, fakeElement());
       return elements.get(selector);
@@ -69,6 +71,7 @@ async function mountSidepanel() {
   return {
     element: (selector) => elements.get(selector),
     requests,
+    isFocused: (selector) => globalThis.document.activeElement === elements.get(selector),
     settingsChanged(nextSettings) {
       onStorageChanged({ settings: { newValue: nextSettings } }, 'local');
     },
@@ -177,6 +180,52 @@ test('keyboard shortcut does not start a second request while translating', asyn
     resolveTranslation(app.requests[0], '当前译文');
     await app.flush();
   } finally {
+    app.restore();
+  }
+});
+
+test('stopping a translation preserves source and focus, and allows retry despite a late response', async () => {
+  const app = await mountSidepanel();
+  try {
+    assert.equal(app.element('#stop-button')?.hidden, true);
+    app.element('#translate-button').focus();
+    beginTranslation(app);
+    await app.flush();
+    assert.equal(app.requests.length, 1);
+    assert.equal(app.element('#translate-button').hidden, true);
+    assert.equal(app.element('#stop-button').hidden, false);
+    assert.equal(app.isFocused('#stop-button'), true);
+
+    app.element('#stop-button').click();
+    assert.equal(app.requests[0].options.signal.aborted, true);
+    assert.equal(app.element('#source-text').value, 'Hello');
+    assert.equal(app.element('#result-stopped').hidden, false);
+    assert.equal(app.element('#stop-button').hidden, true);
+    assert.equal(app.isFocused('#translate-button'), true);
+    assert.equal(app.element('#retry-button').disabled, false);
+
+    app.element('#retry-button').focus();
+    app.element('#retry-button').click();
+    await app.flush();
+    assert.equal(app.requests.length, 2);
+    assert.equal(app.isFocused('#stop-button'), true);
+    assert.equal(JSON.parse(app.requests[1].options.body).messages[1].content, 'Hello');
+
+    resolveTranslation(app.requests[0], '已经停止的旧译文');
+    await app.flush();
+    assert.equal(app.element('#result-text').hidden, true);
+    assert.equal(app.element('#result-loading').hidden, false);
+    assert.equal(app.element('#stop-button').hidden, false);
+
+    resolveTranslation(app.requests[1], '重试后的译文');
+    await app.flush();
+    assert.equal(app.element('#result-text').textContent, '重试后的译文');
+    assert.equal(app.element('#result-stopped').hidden, true);
+    assert.equal(app.element('#stop-button').hidden, true);
+    assert.equal(app.isFocused('#translate-button'), true);
+  } finally {
+    for (const request of app.requests) resolveTranslation(request, '');
+    await app.flush();
     app.restore();
   }
 });
