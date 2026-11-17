@@ -29,7 +29,8 @@
 
 | 存储 | 键 | 用途 |
 | --- | --- | --- |
-| `chrome.storage.local` | `settings` | 本机服务配置，含 API Key。后台、设置页和侧栏限制为 `TRUSTED_CONTEXTS` |
+| `chrome.storage.local` | `serviceProfiles` | 已命名的本机 AI 配置与当前配置 ID，含各自的 API Key，仅可信扩展上下文可读 |
+| `chrome.storage.local` | `settings` | 当前服务配置，含 API Key。与 `serviceProfiles` 同次写入，供现有翻译入口读取 |
 | `chrome.storage.session` | `inlineSelection:<tabId>:<requestId>` | 暂存浮层原文与来源信息，使 Worker 休眠后仍能重试。新浮层、关闭和页面离开时清理相关记录 |
 | `chrome.storage.session` | `pageTranslation:<tabId>:<requestId>` | 保存双语翻译的请求与文档标识，使 Worker 休眠后可在下一次滚动时继续 |
 | `chrome.storage.session` | `pendingSelection:<windowId>:<id>` | 后台交给侧栏的独立选文事件。`lib/selection.js` 校验同窗口、非空和 30 秒有效期，并按事件顺序比较 |
@@ -37,6 +38,8 @@
 侧栏监听存储事件，同时读取启动快照。如果窗口 ID 还未返回，先缓存收到的事件，之后合并并选择最新有效选文。配置有效时，先删除该选文自己的存储键，再开始翻译，避免重开侧栏重复请求或旧操作误删新选文。
 
 手动编辑原文、收到新选文或翻译字段变更会中止旧请求。侧栏递增 `requestNumber`，回调只更新对应的当前请求。涉及配置字段时查看 `TRANSLATION_SETTING_KEYS`，当前包含 `provider`、`endpoint`、`apiKey`、`model`、`targetLanguage`、`prompt`。译文仅保留在当前界面状态中。
+
+仅有旧版 `settings` 时，将其作为默认配置读取。首次保存、切换或清理时在 `transmate-settings` 锁内重新读取配置和检查关联域名权限。修改或删除只撤销其他有效配置均未使用的旧域名；手动撤销和重置仍按授权列表执行。
 
 ## 网页双语与重点总结
 

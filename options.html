@@ -34,6 +34,18 @@
           <header class="page-heading"><span class="small-index">01 / 03</span><h2>连接你的 AI 服务</h2><p>按你的习惯配置翻译。保存后，在任何网页选中文字并通过右键菜单打开 TransMate。</p></header>
 
           <form id="settings-form" novalidate>
+            <section class="form-section" aria-label="AI 配置">
+              <div class="field">
+                <label for="service-profile">本机服务配置</label>
+                <div class="select-wrap"><select id="service-profile"></select><span aria-hidden="true">⌄</span></div>
+              </div>
+              <div class="profile-actions management-actions">
+                <button id="new-profile" type="button">新建配置</button>
+                <button id="activate-profile" type="button" disabled>设为当前</button>
+                <button id="delete-profile" type="button" disabled>删除配置</button>
+              </div>
+              <div class="field"><label for="profile-name">配置名称</label><input id="profile-name" type="text" maxlength="48" required /></div>
+            </section>
             <section class="form-section" aria-labelledby="provider-heading">
               <div class="section-heading"><span class="section-number">01</span><h3 id="provider-heading">选择服务</h3><span class="heading-rule"></span></div>
               <p class="section-help">预设会填写接口地址。你仍可修改地址，或选择自定义 OpenAI 兼容接口。</p>
@@ -67,7 +79,7 @@
               <div class="management-actions"><button id="clear-saved-key" type="button">清除已保存密钥</button><button id="reset-settings" type="button">重置全部配置</button></div>
               <h4>已授权的服务域名</h4>
               <ul id="permission-list" class="permission-list" aria-label="已授权域名"><li class="permission-empty">正在读取…</li></ul>
-              <p class="permission-help">撤销当前服务的访问权限后，需重新保存或测试连接才能继续翻译。</p>
+              <p class="permission-help">撤销域名授权会影响使用该域名的所有配置。重新切换配置、保存或测试连接时可以再次授权。</p>
             </section>
           </form>
           <footer>TRANSMATE <span>·</span> 让阅读继续</footer>

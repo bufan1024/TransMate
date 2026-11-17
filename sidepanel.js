@@ -1,6 +1,7 @@
 import { DEFAULT_SETTINGS, validateSettings } from "./lib/config.js";
 import { createPageSummaryPanel } from "./lib/page-summary-panel.js";
 import { compareSelections, selectionStorageKey, selectionStoragePrefix, selectionWindowIdFromKey, shouldAcceptSelection } from "./lib/selection.js";
+import { SERVICE_PROFILES_KEY, activateServiceProfile, normalizeServiceProfiles, profileOrigin } from "./lib/settings-management.js";
 import { translate } from "./lib/translator.js";
 
 const MAX_TEXT_LENGTH = 5000;
@@ -17,6 +18,9 @@ const targetNames = {
 };
 
 const elements = {
+  serviceSwitcher: document.querySelector("#service-switcher"),
+  serviceProfile: document.querySelector("#service-profile"),
+  serviceStatus: document.querySelector("#service-profile-status"),
   input: document.querySelector("#source-text"),
   count: document.querySelector("#source-count"),
   target: document.querySelector("#target-label"),
@@ -47,12 +51,73 @@ let requestNumber = 0;
 let busy = false;
 let currentWindowId = null;
 let settingsChangeVersion = 0;
+let profileChangeVersion = 0;
+let activeProfileId = null;
+let profileChoices = [];
+let switchingProfile = false;
 const queuedSelections = new Map();
 const summaryPanel = createPageSummaryPanel(chrome, document, normalizedSettings);
 
 function openSettings() {
   chrome.runtime.openOptionsPage();
 }
+
+function updateProfileChoice() {
+  elements.serviceProfile.value = activeProfileId ?? "";
+  elements.serviceProfile.disabled = switchingProfile;
+}
+
+function renderServiceProfiles(stored) {
+  const state = normalizeServiceProfiles(stored);
+  activeProfileId = state.activeId;
+  profileChoices = state.profiles.map((profile) => ({
+    id: profile.id, name: profile.name, origin: profileOrigin(profile),
+  }));
+  elements.serviceSwitcher.hidden = profileChoices.length < 2;
+  if (elements.serviceSwitcher.hidden) return;
+  const options = profileChoices.map(({ id, name, origin }) => {
+    const option = new Option(name, id);
+    option.disabled = !origin;
+    return option;
+  });
+  elements.serviceProfile.replaceChildren(...options);
+  updateProfileChoice();
+}
+
+elements.serviceProfile.addEventListener("change", async () => {
+  if (switchingProfile) return;
+  const profile = profileChoices.find(({ id }) => id === elements.serviceProfile.value);
+  if (!profile?.origin || profile.id === activeProfileId) {
+    updateProfileChoice();
+    return;
+  }
+  const lockManager = globalThis.navigator?.locks;
+  if (typeof lockManager?.request !== "function") {
+    elements.serviceStatus.textContent = "当前浏览器无法安全切换配置，请升级 Chrome。";
+    updateProfileChoice();
+    return;
+  }
+  switchingProfile = true;
+  elements.serviceProfile.disabled = true;
+  elements.serviceStatus.textContent = "正在切换配置…";
+  try {
+    // Preserve the dropdown gesture for a domain that was revoked manually.
+    if (!await chrome.permissions.request({ origins: [profile.origin] })) {
+      elements.serviceStatus.textContent = "未获得该服务的访问权限。";
+      return;
+    }
+    await activateServiceProfile({
+      profileId: profile.id, expectedOrigin: profile.origin, storageArea: chrome.storage.local,
+      permissionsApi: chrome.permissions, lockManager,
+    });
+    elements.serviceStatus.textContent = "";
+  } catch {
+    elements.serviceStatus.textContent = "切换配置失败，请检查设置与域名授权。";
+  } finally {
+    switchingProfile = false;
+    updateProfileChoice();
+  }
+});
 
 function normalizedSettings() {
   try {
@@ -276,6 +341,17 @@ chrome.storage.onChanged.addListener((changes, area) => {
     updateControls();
     maybeTranslateSelection();
   }
+  if (area === "local" && changes[SERVICE_PROFILES_KEY]) {
+    profileChangeVersion += 1;
+    try {
+      renderServiceProfiles({
+        settings: changes.settings?.newValue,
+        [SERVICE_PROFILES_KEY]: changes[SERVICE_PROFILES_KEY].newValue,
+      });
+    } catch {
+      elements.serviceSwitcher.hidden = true;
+    }
+  }
   if (area === "session") {
     for (const [key, change] of Object.entries(changes)) {
       summaryPanel.receive(key, change.newValue);
@@ -288,6 +364,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 async function initialize() {
   const initialSettingsChangeVersion = settingsChangeVersion;
+  const initialProfileChangeVersion = profileChangeVersion;
   try {
     await chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
     try {
@@ -297,11 +374,14 @@ async function initialize() {
       // Selection cannot be routed safely; manual translation remains available.
     }
     const [storedSettings, session] = await Promise.all([
-      chrome.storage.local.get("settings"),
+      chrome.storage.local.get(["settings", SERVICE_PROFILES_KEY]),
       chrome.storage.session.get(null),
     ]);
     if (settingsChangeVersion === initialSettingsChangeVersion) {
       settings = { ...DEFAULT_SETTINGS, ...(storedSettings.settings || {}) };
+    }
+    if (profileChangeVersion === initialProfileChangeVersion) {
+      renderServiceProfiles(storedSettings);
     }
     updateControls();
     summaryPanel.initialize(currentWindowId, session);

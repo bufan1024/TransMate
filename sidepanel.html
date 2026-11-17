@@ -46,6 +46,11 @@
         </section>
 
         <section class="translator-card" aria-label="翻译工作区">
+          <div class="service-switcher" id="service-switcher" hidden>
+            <label for="service-profile">AI 配置</label>
+            <select id="service-profile" aria-describedby="service-profile-status"></select>
+            <span class="service-switcher-status" id="service-profile-status" role="status"></span>
+          </div>
           <div class="section-label"><span class="section-index">01</span><span>原文</span><span class="section-rule"></span><span id="source-count">0 字</span></div>
           <label class="sr-only" for="source-text">需要翻译的文字</label>
           <textarea id="source-text" placeholder="在网页上选中文字，或在这里粘贴内容…" spellcheck="false"></textarea>
