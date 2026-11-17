@@ -272,9 +272,11 @@ test('right-click sends the target language of the result without exposing provi
   const [result] = messages(calls, 'TRANSMATE_INLINE_RESULT');
   assert.equal(show.message.text, 'Hello world');
   assert.equal(show.message.keyboard, undefined);
+  assert.equal(show.message.targetLanguageId, 'zh-CN');
+  assert.ok(show.message.languages.some(({ id, name }) => id === 'ja' && name === '日语'));
   assert.deepEqual(result.message, {
     type: 'TRANSMATE_INLINE_RESULT', requestId: show.message.requestId,
-    translation: '你好，世界', targetLanguage: '简体中文',
+    translation: '你好，世界', targetLanguage: '简体中文', targetLanguageId: 'zh-CN',
   });
   assert.deepEqual(show.options, { documentId: 'doc-17-2' });
   assert.deepEqual(result.options, show.options);
@@ -647,6 +649,92 @@ test('retry restores the text after worker restart and labels the result with it
   assert.equal(messages(calls, 'TRANSMATE_INLINE_RESULT').at(-1).message.targetLanguage, 'Brazilian Portuguese');
   assert.equal(Object.keys(sessionState).some((key) => key.endsWith(firstId)), false);
   assert.equal(calls.opens.length, 0);
+});
+
+test('switching the inline target replaces an in-flight translation and rejects stale or invalid choices', async () => {
+  const pending = [];
+  const settings = { targetLanguage: 'zh-CN', apiKey: 'unchanged-test-key' };
+  const { api, calls } = fakeChrome({ settings });
+  const router = registerBackground(api, {
+    translateImpl: ({ text, settings: requestSettings, signal }) => {
+      const task = deferred();
+      pending.push({ text, requestSettings, signal, ...task });
+      return task.promise;
+    },
+  });
+  const original = router.onClicked(selected('Same text'), tab());
+  await waitFor(() => pending.length === 1);
+  const firstId = router.activeByTab.get(17).requestId;
+  const switchLanguage = (requestId, targetLanguage, source = sender()) => router.onMessage({
+    type: 'TRANSMATE_INLINE_SWITCH_LANGUAGE', requestId, targetLanguage,
+  }, source);
+
+  try {
+    assert.deepEqual(await switchLanguage(firstId, 'arbitrary prompt'), { ok: false });
+    assert.deepEqual(await switchLanguage(firstId, 'ja', sender(17, 0, 'wrong-doc')), { ok: false });
+    assert.equal(pending[0].signal.aborted, false);
+
+    const accepted = switchLanguage(firstId, 'ja');
+    const duplicate = switchLanguage(firstId, 'ko');
+    assert.deepEqual(await accepted, { ok: true });
+    assert.deepEqual(await duplicate, { ok: false });
+    await waitFor(() => pending.length === 2);
+    const secondId = router.activeByTab.get(17).requestId;
+    assert.equal(pending[0].signal.aborted, true);
+    assert.equal(pending[1].requestSettings.targetLanguage, 'ja');
+    assert.deepEqual(await switchLanguage(firstId, 'ko'), { ok: false });
+    assert.deepEqual(await switchLanguage(secondId, 'fr'), { ok: true });
+    await waitFor(() => pending.length === 3);
+    const thirdId = router.activeByTab.get(17).requestId;
+    assert.equal(pending[1].signal.aborted, true);
+    assert.equal(pending[2].requestSettings.targetLanguage, 'fr');
+    assert.equal(pending[2].text, 'Same text');
+    assert.equal(settings.targetLanguage, 'zh-CN');
+    assert.deepEqual(messages(calls, 'TRANSMATE_INLINE_SHOW').slice(1).map(({ message }) => [
+      message.retryOf, message.targetLanguageId, message.targetLanguage,
+    ]), [[firstId, 'ja', '日语'], [secondId, 'fr', '法语']]);
+    pending[0].resolve('stale Chinese');
+    pending[1].resolve('stale Japanese');
+    pending[2].resolve('French result');
+    await waitFor(() => messages(calls, 'TRANSMATE_INLINE_RESULT').length === 1);
+    assert.deepEqual(messages(calls, 'TRANSMATE_INLINE_RESULT')[0].message, {
+      type: 'TRANSMATE_INLINE_RESULT', requestId: thirdId, translation: 'French result',
+      targetLanguageId: 'fr', targetLanguage: '法语',
+    });
+  } finally {
+    for (const task of pending) task.resolve('cleanup');
+    await original;
+  }
+});
+
+test('temporary inline language survives worker restart and retry and resets with a new selection', async () => {
+  const settings = { targetLanguage: 'en', apiKey: 'unchanged-test-key' };
+  const { api, calls, sessionState } = fakeChrome({ settings });
+  const translated = [];
+  const translateImpl = async ({ text, settings: requestSettings }) => {
+    translated.push([text, requestSettings.targetLanguage]);
+    return 'Translation';
+  };
+  const worker = registerBackground(api, { translateImpl });
+  await worker.onClicked(selected('First text'), tab());
+  const firstId = worker.activeByTab.get(17).requestId;
+  const message = {
+    type: 'TRANSMATE_INLINE_SWITCH_LANGUAGE', requestId: firstId, targetLanguage: 'de',
+  };
+  assert.deepEqual(await worker.onMessage(message, sender()), { ok: true });
+  await waitFor(() => messages(calls, 'TRANSMATE_INLINE_RESULT').length === 2);
+  const overrideId = worker.activeByTab.get(17).requestId;
+  assert.ok(Object.keys(sessionState).some((key) => key.endsWith(overrideId)));
+
+  const restarted = registerBackground(api, { translateImpl });
+  await restarted.onMessage({ type: 'TRANSMATE_INLINE_RETRY', requestId: overrideId }, sender());
+  await restarted.onClicked(selected('Second text'), tab());
+  assert.deepEqual(translated, [
+    ['First text', 'en'], ['First text', 'de'], ['First text', 'de'], ['Second text', 'en'],
+  ]);
+  assert.deepEqual(await api.storage.local.get('settings'), { settings });
+  assert.equal(Object.keys(sessionState).length, 1);
+  assert.doesNotMatch(JSON.stringify(sessionState), /unchanged-test-key/);
 });
 
 test('a new selection after worker restart removes the old session selection', async () => {

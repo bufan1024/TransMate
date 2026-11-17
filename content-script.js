@@ -9,6 +9,7 @@
     hide: 'TRANSMATE_INLINE_HIDE',
     cancel: 'TRANSMATE_INLINE_CANCEL',
     retry: 'TRANSMATE_INLINE_RETRY',
+    switchLanguage: 'TRANSMATE_INLINE_SWITCH_LANGUAGE',
     options: 'TRANSMATE_INLINE_OPEN_OPTIONS',
   };
   const WATCHDOG_MS = 30_000;
@@ -18,11 +19,13 @@
     requestId: null,
     invalidatedRequestId: null,
     latestOrder: 0,
-    retryingRequestId: null,
+    restart: null,
     notice: false,
     source: '',
     sourceExpanded: false,
     translation: '',
+    languages: [],
+    targetLanguageId: '',
     targetLanguage: '',
     error: '',
     status: 'loading',
@@ -108,7 +111,7 @@
 
     .card:focus { outline: none; }
     .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    button:focus-visible, .body:focus-visible {
+    button:focus-visible, .target-select:focus-visible, .body:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: -2px;
     }
@@ -130,6 +133,32 @@
       font-size: 12px;
       font-weight: 650;
     }
+    .target-picker { display: flex; align-items: center; gap: 4px; }
+    .target-control { position: relative; min-inline-size: 0; }
+    .target-control svg {
+      position: absolute;
+      inset-inline-end: 6px;
+      inset-block-start: calc(50% - 5px);
+      inline-size: 10px;
+      block-size: 10px;
+      pointer-events: none;
+    }
+    .target-select {
+      appearance: none;
+      min-block-size: 30px;
+      inline-size: 88px;
+      field-sizing: content;
+      max-inline-size: 135px;
+      padding: 0 21px 0 6px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--paper);
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+    }
+    .target-select:hover { background: var(--inset); }
+    .target-select option { color: var(--ink); }
     .close {
       flex: none;
       inline-size: 32px;
@@ -223,11 +252,11 @@
     .action.primary:focus-visible { outline-color: var(--on-accent); }
 
     @media (forced-colors: active) {
-      .card, .footer, .source-section, button { border-color: CanvasText; }
+      .card, .footer, .source-section, .target-select, button { border-color: CanvasText; }
       .source-section { border: 1px solid; }
       .eyebrow, .source-toggle { color: LinkText; }
       .action.primary { background: Highlight; color: HighlightText; }
-      .card:focus-visible, button:focus-visible, .body:focus-visible { outline-color: Highlight; }
+      .card:focus-visible, button:focus-visible, .target-select:focus-visible, .body:focus-visible { outline-color: Highlight; }
       .action.primary:focus-visible { outline-color: HighlightText; }
       .spinner { border-color: Canvas; border-block-start-color: CanvasText; }
     }
@@ -261,7 +290,7 @@
     clearWatchdog();
     state.watchdog = setTimeout(() => {
       if (state.requestId !== requestId || state.status !== 'loading') return;
-      if (state.retryingRequestId === requestId) state.retryingRequestId = null;
+      state.restart = null;
       state.status = 'error';
       state.error = '翻译等待超时，请重试。';
       render();
@@ -358,7 +387,7 @@
     const focusReturn = restoreFocus && document.activeElement === state.host ? state.previousFocus : null;
     state.requestId = null;
     state.invalidatedRequestId = null;
-    state.retryingRequestId = null;
+    state.restart = null;
     state.translation = '';
     state.error = '';
     state.anchor = null;
@@ -387,6 +416,44 @@
     path.setAttribute('d', pathData);
     svg.append(path);
     return svg;
+  }
+
+  function restartTranslation(targetLanguage) {
+    if (!state.requestId || state.notice || state.restart) return;
+    const restart = { requestId: state.requestId, targetLanguage, queuedLanguage: null, replacementId: null };
+    state.restart = restart;
+    state.status = 'loading';
+    state.translation = '';
+    state.error = '';
+    render();
+    startWatchdog(restart.requestId);
+    const request = targetLanguage === undefined
+      ? { type: MESSAGE.retry, requestId: restart.requestId }
+      : { type: MESSAGE.switchLanguage, requestId: restart.requestId, targetLanguage };
+    send(request).then((response) => finishRestart(restart, response?.ok === true),
+      () => finishRestart(restart, false));
+  }
+
+  function finishRestart(restart, accepted) {
+    if (state.restart !== restart) return;
+    state.restart = null;
+    if (accepted && restart.replacementId === state.requestId) {
+      if (restart.queuedLanguage && restart.queuedLanguage !== state.targetLanguageId) {
+        restartTranslation(restart.queuedLanguage);
+      } else if (restart.result && state.invalidatedRequestId !== state.requestId) {
+        applyResult(restart.result);
+      }
+      return;
+    }
+    if (state.requestId !== restart.requestId) {
+      renderTarget();
+      return;
+    }
+    clearWatchdog();
+    state.invalidatedRequestId = state.requestId;
+    state.status = 'error';
+    state.error = '无法重新发起翻译，请稍后重试。';
+    render();
   }
 
   function ensureUI() {
@@ -418,11 +485,18 @@
     card.tabIndex = -1;
     const header = element('div', 'header');
     const heading = element('p', 'eyebrow', '划词翻译');
+    const targetPicker = element('label', 'eyebrow target-picker');
+    const targetControl = element('span', 'target-control');
+    const targetSelect = element('select', 'target-select');
+    targetSelect.setAttribute('aria-label', '目标语言');
+    targetSelect.title = '仅对当前划词生效';
+    targetControl.append(targetSelect, icon('m5 9 7 7 7-7'));
+    targetPicker.append(element('span', '', '译为'), targetControl);
     const closeButton = element('button', 'close');
     closeButton.type = 'button';
     closeButton.setAttribute('aria-label', '关闭翻译');
     closeButton.append(icon('M6 6l12 12M18 6L6 18'));
-    header.append(heading, closeButton);
+    header.append(heading, targetPicker, closeButton);
 
     const body = element('div', 'body');
     body.setAttribute('role', 'region');
@@ -464,6 +538,18 @@
 
     closeButton.addEventListener('click', () => close(true));
     stopButton.addEventListener('click', () => close(true));
+    targetSelect.addEventListener('change', (event) => {
+      const language = targetSelect.value;
+      if (!event.isTrusted || !state.languages.some(({ id }) => id === language)) {
+        renderTarget();
+        return;
+      }
+      if (state.restart) {
+        state.restart.queuedLanguage = language;
+      } else if (language !== state.targetLanguageId) {
+        restartTranslation(language);
+      }
+    });
     sourceToggle.addEventListener('click', () => {
       state.sourceExpanded = !state.sourceExpanded;
       updateSourcePreview();
@@ -476,23 +562,7 @@
       }
     });
     retryButton.addEventListener('click', (event) => {
-      if (!event.isTrusted) return;
-      const requestId = state.requestId;
-      if (!requestId || state.status === 'loading') return;
-      state.status = 'loading';
-      state.translation = '';
-      state.error = '';
-      state.retryingRequestId = requestId;
-      render();
-      startWatchdog(requestId);
-      send({ type: MESSAGE.retry, requestId }).catch(() => {
-        if (state.retryingRequestId === requestId) state.retryingRequestId = null;
-        if (state.requestId !== requestId) return;
-        clearWatchdog();
-        state.status = 'error';
-        state.error = '无法重新发起翻译，请稍后重试。';
-        render();
-      });
+      if (event.isTrusted && state.status !== 'loading') restartTranslation();
     });
     copyButton.addEventListener('click', async (event) => {
       if (!event.isTrusted) return;
@@ -516,7 +586,7 @@
 
     state.host = host;
     state.elements = {
-      card, heading, body, sourceSection, source, sourceToggle, loading, result, error, announcement,
+      card, heading, targetPicker, targetSelect, body, sourceSection, source, sourceToggle, loading, result, error, announcement,
       footer, retryButton, optionsButton, stopButton, copyButton, copyLabel,
     };
     new ResizeObserver(schedulePosition).observe(body);
@@ -530,10 +600,26 @@
     sourceToggle.setAttribute('aria-expanded', String(state.sourceExpanded));
   }
 
+  function renderTarget() {
+    const { heading, targetPicker, targetSelect } = state.elements;
+    const showPicker = !state.notice && state.languages.length > 0;
+    heading.hidden = showPicker;
+    targetPicker.hidden = !showPicker;
+    if (!showPicker) return;
+
+    const selected = state.restart?.queuedLanguage ?? state.restart?.targetLanguage ?? state.targetLanguageId;
+    if (!Array.from(targetSelect.options).some(({ value }) => value === selected)) {
+      const legacy = new Option(state.targetLanguage || selected, selected);
+      legacy.disabled = true;
+      targetSelect.prepend(legacy);
+    }
+    if (targetSelect.value !== selected) targetSelect.value = selected;
+  }
+
   function render() {
     if (!state.elements) return;
     const {
-      card, heading, sourceSection, source, loading, result, error, announcement, footer,
+      card, sourceSection, source, loading, result, error, announcement, footer,
       retryButton, optionsButton, stopButton, copyButton, copyLabel,
     } = state.elements;
     const focused = state.host.shadowRoot.activeElement;
@@ -544,7 +630,7 @@
     if (source.textContent !== state.source) source.textContent = state.source;
     updateSourcePreview();
     sourceSection.hidden = state.notice;
-    heading.textContent = succeeded && state.targetLanguage ? `译为${state.targetLanguage}` : '划词翻译';
+    renderTarget();
     card.dataset.notice = String(state.notice);
     loading.hidden = !pending || state.notice;
     result.hidden = !succeeded;
@@ -570,8 +656,8 @@
         || !Number.isSafeInteger(message.order)) return false;
     if (message.order < state.latestOrder
         || (message.order === state.latestOrder && message.requestId !== state.requestId)) return false;
-    if (message.retryOf && (state.requestId !== message.retryOf
-        || state.retryingRequestId !== message.retryOf)) return false;
+    const restart = state.restart;
+    if (message.retryOf && (state.requestId !== message.retryOf || restart?.requestId !== message.retryOf)) return false;
     const oldRequestId = state.requestId;
     const active = oldRequestId && document.activeElement === state.host
       ? state.previousFocus : focusedElement();
@@ -579,7 +665,8 @@
     if (oldRequestId && oldRequestId !== message.requestId && !message.retryOf) {
       sendCancel(oldRequestId);
     }
-    state.retryingRequestId = null;
+    if (message.retryOf) restart.replacementId = message.requestId;
+    else state.restart = null;
     if (state.copyReset !== null) clearTimeout(state.copyReset);
     state.copyReset = null;
     state.requestId = message.requestId;
@@ -588,10 +675,13 @@
     state.notice = message.notice === true;
     state.source = message.text;
     state.translation = '';
-    state.targetLanguage = '';
+    state.targetLanguageId = message.targetLanguageId || '';
+    state.targetLanguage = message.targetLanguage || '';
     state.error = '';
     state.status = 'loading';
     if (!message.retryOf) {
+      state.languages = Array.isArray(message.languages) ? message.languages : [];
+      state.elements.targetSelect.replaceChildren(...state.languages.map(({ id, name }) => new Option(name, id)));
       state.anchor = captureAnchor(message.text, active);
       state.sourceExpanded = false;
       state.previousFocus = active;
@@ -601,6 +691,23 @@
     if (message.keyboard === true) state.elements.card.focus({ preventScroll: true });
     startWatchdog(message.requestId);
     return true;
+  }
+
+  function applyResult(message) {
+    clearWatchdog();
+    if (typeof message.translation === 'string' && message.translation.trim()) {
+      state.status = 'success';
+      state.translation = message.translation;
+      state.targetLanguageId = message.targetLanguageId || state.targetLanguageId;
+      state.targetLanguage = message.targetLanguage || state.targetLanguage;
+      state.error = '';
+    } else {
+      state.status = 'error';
+      state.translation = '';
+      state.error = typeof message.error === 'string' && message.error.trim()
+        ? message.error : '翻译失败，请重试。';
+    }
+    render();
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -614,29 +721,26 @@
         sendResponse({ ok: false });
         return;
       }
-      if (state.invalidatedRequestId === message.requestId) {
+      const restart = state.restart;
+      if (state.invalidatedRequestId === message.requestId || restart?.requestId === message.requestId) {
         sendResponse({ ok: true });
         return;
       }
-      clearWatchdog();
-      if (typeof message.translation === 'string' && message.translation.trim()) {
-        state.status = 'success';
-        state.translation = message.translation;
-        state.targetLanguage = typeof message.targetLanguage === 'string' ? message.targetLanguage : '';
-        state.error = '';
+      if (restart?.replacementId === message.requestId) {
+        restart.result = message;
       } else {
-        state.status = 'error';
-        state.translation = '';
-        state.error = typeof message.error === 'string' && message.error.trim()
-          ? message.error : '翻译失败，请重试。';
+        applyResult(message);
       }
-      render();
       sendResponse({ ok: true });
       return;
     }
     if (message.type === MESSAGE.invalidate) {
       if (message.requestId !== state.requestId) {
         sendResponse({ ok: false });
+        return;
+      }
+      if (state.restart?.requestId === message.requestId) {
+        sendResponse({ ok: true });
         return;
       }
       clearWatchdog();

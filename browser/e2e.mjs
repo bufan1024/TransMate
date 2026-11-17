@@ -24,6 +24,7 @@ const fixturePage = `<!doctype html>
 <p id="inline-slow">inline slow</p>
 <p id="inline-latest">inline latest</p>
 <p id="inline-close-slow">inline close slow</p>
+<p id="inline-switch-language">inline switch language</p>
 <p id="shortcut-paragraph">shortcut paragraph</p>
 <input id="shortcut-input" value="shortcut input">
 <iframe id="shortcut-frame" src="/inline-frame" title="Shortcut frame"></iframe>
@@ -108,6 +109,16 @@ const delayedInlineResponses = new Map([
   ['inline slow', { gate: deferred(), finished: deferred() }],
   ['inline close slow', { gate: deferred(), finished: deferred() }],
 ]);
+const languageResponses = new Map([
+  ['panel switch language', { target: 'zh-CN', nextTarget: 'ja', translation: '側面パネルの日本語訳' }],
+  ['panel stop', { target: 'ja', nextTarget: 'ja', translation: '停止後に再開した翻訳' }],
+  ['inline switch language', { target: 'zh-CN', nextTarget: 'ja', translation: 'カードの日本語訳' }],
+]);
+for (const delayed of languageResponses.values()) {
+  delayed.gate = deferred();
+  delayed.finished = deferred();
+}
+
 const server = createServer(async (request, response) => {
   response.setHeader('Access-Control-Allow-Origin', '*');
   response.setHeader('Access-Control-Allow-Headers', 'authorization,content-type');
@@ -146,7 +157,8 @@ const server = createServer(async (request, response) => {
   const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
   const instruction = body.messages.find((message) => message.role === 'system')?.content || '';
   const text = body.messages.find((message) => message.role === 'user')?.content;
-  requests.push({ text, model: body.model, stream: body.stream });
+  const target = instruction.match(/^Translate the user's text into (.+?)\. Preserve/)?.[1];
+  requests.push({ text, target, model: body.model, stream: body.stream });
   response.setHeader('Content-Type', 'application/json');
 
   const pageTranslation = instruction.startsWith('Translate the following webpage text blocks into ');
@@ -181,6 +193,23 @@ const server = createServer(async (request, response) => {
 
   if (text === 'retry me' && ++retryAttempts === 1) {
     response.writeHead(429).end(JSON.stringify({ error: 'sensitive upstream detail' }));
+    return;
+  }
+
+  const languageResponse = languageResponses.get(text);
+  if (languageResponse) {
+    let content = target === languageResponse.nextTarget ? languageResponse.translation : '未知语言译文';
+    const delayed = target === languageResponse.target && !languageResponse.started;
+    if (delayed) {
+      languageResponse.started = true;
+      response.once('close', () => { languageResponse.aborted = !response.writableEnded; });
+      await languageResponse.gate.promise;
+      content = '迟到的旧译文';
+    }
+    if (!response.destroyed) {
+      response.writeHead(200).end(JSON.stringify({ choices: [{ message: { content } }] }));
+    }
+    if (delayed) languageResponse.finished.resolve();
     return;
   }
 
@@ -219,6 +248,28 @@ async function waitUntil(predicate, description, timeoutMs = 5000) {
     if (Date.now() - start > timeoutMs) throw new Error('等待超时：' + description);
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
+}
+
+async function chooseLanguage(select, language) {
+  // Headless Chrome cannot drive the system picker for a collapsed select.
+  // Expose the same native options in-page and click to emit a trusted change.
+  const originalSize = await select.evaluate((element) => {
+    const size = element.getAttribute('size');
+    element.size = element.options.length;
+    return size;
+  });
+  try {
+    await select.locator(`option[value="${language}"]`).click();
+  } finally {
+    await select.evaluate((element, size) => {
+      if (size === null) element.removeAttribute('size');
+      else element.setAttribute('size', size);
+    }, originalSize);
+  }
+}
+
+function requestedTargets(text) {
+  return requests.filter((item) => item.text === text).map((item) => item.target);
 }
 
 function requestedPageText(since) {
@@ -363,6 +414,7 @@ try {
     (await chrome.storage.local.get('settings')).settings);
   assert.equal(saved.endpoint, endpoint);
   assert.equal(saved.model, 'local-mock-model');
+  assert.equal(saved.targetLanguage, 'zh-CN');
   assert.deepEqual(await options.evaluate(() => globalThis.__permissionRequests.map((item) => item.origins)), [
     ['http://127.0.0.1/*'],
     ['http://127.0.0.1/*'],
@@ -415,6 +467,49 @@ try {
   await panel.locator('#result-text').waitFor({ state: 'visible' });
   assert.equal(await panel.locator('#result-text').textContent(), '重试成功');
   assert.equal(retryAttempts, 2);
+
+  const panelTarget = panel.locator('#target-language');
+  const panelStop = panel.getByRole('button', { name: '停止', exact: true });
+  const panelSource = panel.locator('#source-text');
+  const panelResult = panel.locator('#result-text');
+  await panel.getByRole('combobox', { name: '目标语言' }).waitFor({ timeout: 3000 });
+  assert.equal(await panelTarget.locator('option:checked').textContent(), '简体中文（默认）');
+  assert.equal(await panelStop.isVisible(), false, '完成翻译后应隐藏停止按钮');
+
+  await panelSource.fill('panel switch language');
+  await panel.locator('#translate-button').click();
+  const panelSwitchResponse = languageResponses.get('panel switch language');
+  await waitUntil(() => panelSwitchResponse.started, '侧栏已发出默认语言的待完成请求');
+  await chooseLanguage(panelTarget, 'ja');
+  await panelResult.filter({ hasText: panelSwitchResponse.translation }).waitFor();
+  assert.deepEqual(requestedTargets('panel switch language'), [saved.targetLanguage, 'ja']);
+  await waitUntil(() => panelSwitchResponse.aborted, '侧栏换语言后终止旧请求');
+  panelSwitchResponse.gate.resolve();
+  await panelSwitchResponse.finished.promise;
+  assert.equal(await panelResult.textContent(), panelSwitchResponse.translation, '侧栏显示新语言的译文');
+  assert.equal(await panelTarget.inputValue(), 'ja');
+
+  await panelSource.fill('panel stop');
+  await panel.locator('#translate-button').click();
+  const panelStopResponse = languageResponses.get('panel stop');
+  await waitUntil(() => panelStopResponse.started, '侧栏已在当前临时语言下发出待停止请求');
+  await panelStop.click();
+  await panelStop.waitFor({ state: 'hidden' });
+  await waitUntil(() => panelStopResponse.aborted, '点击停止后终止侧栏请求');
+  assert.equal(await panelSource.inputValue(), 'panel stop', '停止后应保留原文');
+  assert.equal(await panel.locator('#translate-button').isEnabled(), true, '停止后应可再次翻译');
+  assert.equal(await panel.locator('#copy-button').isDisabled(), true);
+  panelStopResponse.gate.resolve();
+  await panelStopResponse.finished.promise;
+  assert.equal(await panelResult.isVisible(), false, '停止后应忽略迟到的译文');
+  await panel.locator('#translate-button').click();
+  await panelResult.filter({ hasText: panelStopResponse.translation }).waitFor();
+  assert.deepEqual(requestedTargets('panel stop'), ['ja', 'ja'], '停止后保留侧栏的临时语言');
+  await panel.reload();
+  await waitUntil(async () => await panelTarget.locator('option:checked').textContent() === '简体中文（默认）',
+    '重新打开侧栏后恢复默认语言');
+  assert.deepEqual(await options.evaluate(async () => (await chrome.storage.local.get('settings')).settings), saved,
+    '侧栏临时语言与停止操作不得保存设置');
 
   const firstWindowId = await panel.evaluate(async () => (await chrome.windows.getCurrent()).id);
   const [secondPanel] = await Promise.all([
@@ -473,6 +568,7 @@ try {
   }, inlineUrl);
   assert.ok(Number.isInteger(inlineTabId), '必须找到本地网页标签页');
   const inlineHost = inlinePage.locator('#transmate-inline-host');
+  const inlineTarget = inlineHost.locator('.target-select');
   const initialPageCount = context.pages().length;
 
   await inlinePage.locator('#fixture-control').focus();
@@ -482,7 +578,7 @@ try {
   await inlineHost.locator('.result').waitFor({ state: 'visible' });
   assert.equal(await inlineHost.locator('.source').textContent(), selectedText);
   assert.equal(await inlineHost.locator('.result').textContent(), '页内译文');
-  assert.equal(await inlineHost.locator('.eyebrow').textContent(), '译为简体中文');
+  assert.equal(await inlineTarget.inputValue(), saved.targetLanguage);
   assert.equal(await inlineHost.getByRole('button', { name: '复制译文' }).isVisible(), true);
   assert.equal(requests.filter((item) => item.text === selectedText).length, 1);
   assert.equal(inlinePage.url(), inlineUrl, '页内翻译不得跳转当前网页');
@@ -594,6 +690,34 @@ try {
   assert.equal(await worker.evaluate(() => globalThis.__transmateTestSidePanelOpens), 0,
     '普通网页的页内翻译不得打开侧栏');
 
+  selectedText = await selectFixtureText(inlinePage, 'inline-switch-language');
+  await triggerContextMenu(worker, inlineTabId, 'translate-selection', selectedText);
+  const inlineSwitchResponse = languageResponses.get('inline switch language');
+  await waitUntil(() => inlineSwitchResponse.started, '卡片已发出默认语言的待完成请求');
+  assert.equal(await inlineTarget.inputValue(), saved.targetLanguage);
+  await inlineTarget.selectOption('fr');
+  await inlinePage.waitForTimeout(150);
+  assert.deepEqual(requestedTargets(selectedText), [saved.targetLanguage],
+    '网页脚本合成的语言切换不得发送付费请求');
+  await chooseLanguage(inlineTarget, 'ja');
+  await inlineHost.locator('.result').filter({ hasText: inlineSwitchResponse.translation }).waitFor();
+  await waitUntil(() => inlineSwitchResponse.aborted, '卡片换语言后终止旧请求');
+  inlineSwitchResponse.gate.resolve();
+  await inlineSwitchResponse.finished.promise;
+  assert.equal(await inlineHost.locator('.result').textContent(), inlineSwitchResponse.translation, '卡片显示新语言的译文');
+  assert.equal(await inlineHost.locator('.source').textContent(), selectedText);
+  assert.equal(await inlineTarget.inputValue(), 'ja');
+
+  await worker.evaluate(() => globalThis.__transmateTestRouter.activeByTab.clear());
+  await inlineHost.getByRole('button', { name: /^(重新翻译|重试)$/ }).click();
+  await waitUntil(() => requestedTargets(selectedText).length === 3, '重试应在后台休眠后继续使用卡片临时语言');
+  await inlineHost.locator('.result').filter({ hasText: inlineSwitchResponse.translation }).waitFor();
+  assert.deepEqual(requestedTargets(selectedText), [saved.targetLanguage, 'ja', 'ja']);
+  assert.equal(await options.evaluate(async () => (await chrome.storage.local.get('settings')).settings.targetLanguage),
+    saved.targetLanguage, '卡片临时语言不得修改默认设置');
+  await inlineHost.getByRole('button', { name: '关闭翻译' }).click();
+  await inlineHost.waitFor({ state: 'detached' });
+
   // The browser reserves native extension shortcuts, so invoke the registered
   // route directly while its selection reader and UI run in real page frames.
   const commands = await worker.evaluate(() => chrome.commands.getAll());
@@ -617,9 +741,13 @@ try {
     && await inlineHost.locator('.result').textContent() === '快捷键段落译文',
   '快捷键翻译普通段落');
   assert.equal(await inlineHost.locator('.source').textContent(), selectedText);
-  assert.equal(requests.filter((item) => item.text === 'shortcut paragraph').length, 1);
+  assert.deepEqual(requestedTargets(selectedText), [saved.targetLanguage], '新选区应恢复默认语言');
+  assert.equal(await inlineTarget.inputValue(), saved.targetLanguage);
   assert.ok(await inlineHost.evaluate((host) => host.shadowRoot.querySelector('.card').contains(host.shadowRoot.activeElement)),
     '快捷键触发应将焦点移入浮层');
+  await inlinePage.keyboard.press('Tab');
+  assert.equal(await inlineHost.evaluate((host) => host.shadowRoot.activeElement?.getAttribute('aria-label')), '目标语言',
+    'Tab 应到达浮层目标语言选项');
   await inlinePage.keyboard.press('Tab');
   assert.equal(await inlineHost.evaluate((host) => host.shadowRoot.activeElement?.getAttribute('aria-label')), '关闭翻译',
     'Tab 应到达浮层关闭操作');
@@ -884,13 +1012,14 @@ try {
   await pageStatus.getByText('网页正文已变动，请重新启动翻译。').waitFor({ timeout: 6000 });
   assert.equal(requests.length, beforeChangedViewport, '正文原位变动后不得发送已经过期的段落');
 
-  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译和网页重点总结');
+  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、临时目标语言、停止翻译、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译和网页重点总结');
   console.log('Mock POST requests: ' + requests.map((item) => item.text).join(', '));
 } finally {
   releaseSlowResponse?.();
   delayedPageTranslation?.gate.resolve();
   viewportStreamGate?.resolve();
   for (const delayed of delayedInlineResponses.values()) delayed.gate.resolve();
+  for (const delayed of languageResponses.values()) delayed.gate.resolve();
   await context?.close();
   await new Promise((resolve) => server.close(resolve));
   await rm(tempDir, { recursive: true, force: true });

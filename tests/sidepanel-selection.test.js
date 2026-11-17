@@ -20,6 +20,7 @@ function fakeElement() {
   const listeners = new Map();
   return {
     value: '', textContent: '', hidden: false, disabled: false, style: {},
+    append() {},
     addEventListener(type, listener) {
       const list = listeners.get(type) || [];
       list.push(listener);
@@ -43,6 +44,7 @@ async function mountPanel({ windowId = 7, store = new Map(), delayedSnapshot = f
   let releaseRemoval;
 
   globalThis.document = {
+    createElement: fakeElement,
     querySelector(selector) {
       if (!elements.has(selector)) elements.set(selector, fakeElement());
       return elements.get(selector);
