@@ -9,6 +9,8 @@ import { chromium } from 'playwright';
 const extensionDir = fileURLToPath(new URL('../', import.meta.url));
 const chromiumExecutable = process.env.TRANSMATE_CHROMIUM_EXECUTABLE;
 const longInlineSource = 'The river carried small branches and leaves past the quiet town after the rain. '.repeat(20).trim();
+const longBatchParts = ['First paragraph '.repeat(200).trim(), 'Second paragraph '.repeat(180).trim()];
+const longBatchSource = longBatchParts.join('\n\n');
 const fixturePage = `<!doctype html>
 <html lang="en">
 <meta charset="utf-8">
@@ -17,7 +19,8 @@ const fixturePage = `<!doctype html>
   body { margin: 32px; min-height: 140vh; font: 18px sans-serif; }
   p { margin: 20px 0; }
   #inline-first { margin-top: 130px; }
-  #inline-long { font-size: 12px; }
+  #inline-long, #inline-batch { font-size: 12px; }
+  #inline-batch { white-space: pre-wrap; }
 </style>
 <button id="fixture-control">Page control</button>
 <p id="inline-first">inline hello</p>
@@ -29,6 +32,7 @@ const fixturePage = `<!doctype html>
 <input id="shortcut-input" value="shortcut input">
 <iframe id="shortcut-frame" src="/inline-frame" title="Shortcut frame"></iframe>
 <p id="inline-long">${longInlineSource}</p>
+<p id="inline-batch">${longBatchSource}</p>
 </html>`;
 const frameFixturePage = `<!doctype html>
 <html lang="en">
@@ -214,6 +218,8 @@ const server = createServer(async (request, response) => {
   }
 
   const translations = {
+    [longBatchParts[0]]: '第一段译文',
+    [longBatchParts[1]]: '第二段译文',
     'Hello, world.': '你好，世界。',
     'panel success': '侧栏译文',
     'slow cancel': '过期译文',
@@ -737,6 +743,23 @@ try {
   assert.equal(await worker.evaluate(async () => Object.keys(await chrome.storage.session.get(null))
     .some((key) => key.startsWith('pendingSelection:'))), false, '侧栏消费后应清除一次性交接记录');
 
+  await inlinePage.locator('#inline-batch').scrollIntoViewIfNeeded();
+  selectedText = await selectFixtureText(inlinePage, 'inline-batch');
+  assert.equal(selectedText, longBatchSource);
+  const requestsBeforeLongSelection = requests.length;
+  await triggerContextMenu(worker, inlineTabId, 'translate-selection', selectedText);
+  await inlineHost.locator('.error').filter({ hasText: '选文较长，请在侧栏分段翻译。' }).waitFor();
+  assert.equal(requests.length, requestsBeforeLongSelection, '长选文浮层不发起请求');
+  await inlineHost.getByRole('button', { name: '在侧栏打开' }).click();
+  await inlineHost.waitFor({ state: 'detached' });
+  await panel.locator('#source-plan').filter({ hasText: /2 段.*2 次请求.*费用/ }).waitFor();
+  assert.equal(await panelSource.inputValue(), longBatchSource);
+  assert.equal(requests.length, requestsBeforeLongSelection, '交接长选文后应等待侧栏明确开始');
+  await panel.locator('#translate-button').click();
+  await waitUntil(async () => await panelResult.textContent() === '第一段译文\n\n第二段译文',
+    '分段译文应按原文顺序显示');
+  assert.deepEqual(requests.slice(requestsBeforeLongSelection).map(({ text }) => text), longBatchParts);
+
   // The browser reserves native extension shortcuts, so invoke the registered
   // route directly while its selection reader and UI run in real page frames.
   const commands = await worker.evaluate(() => chrome.commands.getAll());
@@ -1033,7 +1056,7 @@ try {
   assert.equal(requests.length, beforeChangedViewport, '正文原位变动后不得发送已经过期的段落');
 
   console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、临时目标语言、停止翻译、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译和网页重点总结');
-  console.log('Mock POST requests: ' + requests.map((item) => item.text).join(', '));
+  console.log('Mock POST requests: ' + requests.map(({ text }) => text.length > 300 ? text.slice(0, 80) + '…' : text).join(', '));
 } finally {
   releaseSlowResponse?.();
   delayedPageTranslation?.gate.resolve();

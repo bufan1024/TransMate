@@ -808,6 +808,37 @@ test('card handoff rejects wrong senders and drops a result exported after navig
   assert.equal(Object.keys(sessionState).some((key) => key.startsWith('pendingSelection:')), false);
 });
 
+test('long selections hand off source only and reject a provider retry from the card', async () => {
+  const { api, calls, sessionState } = fakeChrome();
+  let translations = 0;
+  const router = registerBackground(api, { translateImpl: async () => { translations += 1; return 'Unexpected'; } });
+  const text = '甲'.repeat(5001);
+  await router.onClicked(selected(text, 2), tab());
+  const requestId = router.activeByTab.get(17).requestId;
+  const source = { ...sender(17, 2), tab: tab() };
+  assert.equal(messages(calls, 'TRANSMATE_INLINE_SHOW').at(-1).message.sourceOnly, true);
+  assert.deepEqual(await router.onMessage({ type: 'TRANSMATE_INLINE_RETRY', requestId }, source), { ok: false });
+  const sendMessage = api.tabs.sendMessage;
+  api.tabs.sendMessage = (...args) => args[1].type === 'TRANSMATE_INLINE_EXPORT_RESULT'
+    ? Promise.resolve({ sourceOnly: true }) : sendMessage(...args);
+  assert.deepEqual(await router.onMessage({ type: 'TRANSMATE_INLINE_OPEN_PANEL', requestId }, source), { ok: true });
+  const [handoff] = Object.values(sessionState).filter((item) => !item.requestId);
+  assert.equal(handoff.text, text);
+  assert.equal(Object.hasOwn(handoff, 'result'), false);
+  assert.equal(translations, 0);
+});
+
+test('over-limit selections get a size notice without retaining their original', async () => {
+  const { api, calls, sessionState } = fakeChrome();
+  let translations = 0;
+  const router = registerBackground(api, { translateImpl: async () => { translations += 1; return 'Unexpected'; } });
+  await router.onClicked(selected('甲'.repeat(30001)), tab());
+  assert.equal(messages(calls, 'TRANSMATE_INLINE_SHOW').at(-1).message.text, '');
+  assert.match(messages(calls, 'TRANSMATE_INLINE_RESULT').at(-1).message.error, /30,000/);
+  assert.deepEqual(sessionState, {});
+  assert.equal(translations, 0);
+});
+
 test('a new selection after worker restart removes the old session selection', async () => {
   const { api, sessionState } = fakeChrome();
   const firstWorker = registerBackground(api, { translateImpl: async () => 'First result' });

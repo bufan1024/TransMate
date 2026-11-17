@@ -1,17 +1,19 @@
 import { DEFAULT_SETTINGS, TARGET_LANGUAGES, validateSettings } from "./lib/config.js";
 import { createPageSummaryPanel } from "./lib/page-summary-panel.js";
 import { compareSelections, selectionStorageKey, selectionStoragePrefix, selectionWindowIdFromKey, shouldAcceptSelection } from "./lib/selection.js";
-import { translate } from "./lib/translator.js";
+import { MAX_LONG_TEXT_LENGTH, splitLongText } from "./lib/long-translation.js";
+import { MAX_TEXT_LENGTH, translate } from "./lib/translator.js";
 
-const MAX_TEXT_LENGTH = 5000;
 const TRANSLATION_SETTING_KEYS = ["provider", "endpoint", "apiKey", "model", "targetLanguage", "prompt"];
 const elements = {
   input: document.querySelector("#source-text"),
   count: document.querySelector("#source-count"),
+  sourcePlan: document.querySelector("#source-plan"),
   target: document.querySelector("#target-language"),
   defaultTarget: document.querySelector("#target-label"),
   handoffTarget: document.querySelector("#handoff-target"),
   translate: document.querySelector("#translate-button"),
+  translateLabel: document.querySelector("#translate-label"),
   stop: document.querySelector("#stop-button"),
   clear: document.querySelector("#clear-source"),
   retry: document.querySelector("#retry-button"),
@@ -20,6 +22,7 @@ const elements = {
   state: document.querySelector("#result-state"),
   empty: document.querySelector("#result-empty"),
   loading: document.querySelector("#result-loading"),
+  loadingProgress: document.querySelector("#loading-progress"),
   stopped: document.querySelector("#result-stopped"),
   result: document.querySelector("#result-text"),
   error: document.querySelector("#result-error"),
@@ -36,6 +39,7 @@ let handledSelectionId = null;
 let consumingSelectionId = null;
 let newestSelection = null;
 let activeRequest = null;
+let longJob = null;
 let currentText = "";
 let translation = "";
 let requestNumber = 0;
@@ -62,15 +66,34 @@ function normalizedSettings(targetLanguage = settings.targetLanguage) {
 }
 
 function updateControls() {
-  const length = elements.input.value.length;
+  const text = elements.input.value.trim();
+  const length = text.length;
+  const overLimit = length > MAX_LONG_TEXT_LENGTH;
+  const job = longJob?.text === text ? longJob : null;
+  const chunkCount = length > MAX_TEXT_LENGTH && !overLimit
+    ? (job?.chunks || splitLongText(text)).length : 0;
+  const completedCount = job?.completed.length || 0;
+  const remaining = chunkCount - completedCount;
   const ready = Boolean(normalizedSettings(effectiveTarget()));
   const busy = Boolean(activeRequest);
   const focused = document.activeElement;
   elements.count.textContent = `${length.toLocaleString("zh-CN")} 字`;
-  elements.count.style.color = length > MAX_TEXT_LENGTH ? "#9e3524" : "";
+  elements.count.style.color = overLimit ? "#9e3524" : "";
+  elements.sourcePlan.hidden = !overLimit && !chunkCount;
+  if (overLimit) {
+    elements.sourcePlan.textContent = `原文最多支持 ${MAX_LONG_TEXT_LENGTH.toLocaleString("zh-CN")} 字符，请缩短后翻译。`;
+  } else if (chunkCount) {
+    const plan = completedCount
+      ? `已完成 ${completedCount}/${chunkCount} 段，继续翻译将发送 ${remaining} 次请求。`
+      : `将按原文顺序分 ${chunkCount} 段翻译，共发送 ${chunkCount} 次请求。`;
+    elements.sourcePlan.textContent = `${plan}费用由 AI 服务决定。`;
+  } else {
+    elements.sourcePlan.textContent = "";
+  }
+  elements.translateLabel.textContent = completedCount ? "继续翻译" : "开始翻译";
   elements.clear.disabled = length === 0;
   const consumingSelection = Boolean(pendingSelection || consumingSelectionId);
-  elements.translate.disabled = busy || consumingSelection || !length || length > MAX_TEXT_LENGTH || !ready;
+  elements.translate.disabled = busy || consumingSelection || !length || overLimit || !ready;
   elements.translate.hidden = busy;
   elements.stop.hidden = !busy;
   elements.retry.disabled = busy || consumingSelection || !currentText || !ready;
@@ -99,6 +122,12 @@ function showResult(kind, value = "") {
   elements.state.textContent = {
     empty: "等待输入", loading: "翻译中", stopped: "已停止", success: "已完成", error: "遇到问题",
   }[kind];
+  if (kind === "loading") elements.loadingProgress.textContent = value || "正在翻译…";
+  if (kind === "stopped") {
+    elements.stopped.textContent = longJob
+      ? `翻译已停止，已完成 ${longJob.completed.length}/${longJob.chunks.length} 段。`
+      : "翻译已停止";
+  }
   if (kind === "success") elements.result.textContent = value;
   if (kind === "error") elements.errorMessage.textContent = value;
 }
@@ -116,7 +145,10 @@ function invalidateTranslation(kind = "empty") {
     activeRequest = null;
   }
   translation = "";
-  if (kind !== "stopped") currentText = "";
+  if (kind !== "stopped") {
+    currentText = "";
+    longJob = null;
+  }
   elements.result.textContent = "";
   elements.copyLabel.textContent = "复制译文";
   showResult(kind);
@@ -133,8 +165,8 @@ async function runTranslation(text) {
   if (activeRequest || pendingSelection || consumingSelectionId) return;
   const trimmed = text.trim();
   if (!trimmed) return;
-  if (trimmed.length > MAX_TEXT_LENGTH) {
-    showResult("error", `原文超过 ${MAX_TEXT_LENGTH.toLocaleString("zh-CN")} 字，请缩短后重试。`);
+  if (trimmed.length > MAX_LONG_TEXT_LENGTH) {
+    showResult("error", `原文最多支持 ${MAX_LONG_TEXT_LENGTH.toLocaleString("zh-CN")} 字符，请缩短后翻译。`);
     return;
   }
   const config = normalizedSettings(effectiveTarget());
@@ -144,31 +176,52 @@ async function runTranslation(text) {
     return;
   }
 
+  if (trimmed.length > MAX_TEXT_LENGTH && longJob?.text !== trimmed) {
+    longJob = { text: trimmed, chunks: splitLongText(trimmed), completed: [] };
+  }
+  const job = trimmed.length > MAX_TEXT_LENGTH ? longJob : null;
+  const chunks = job?.chunks || [{ text: trimmed, separator: "" }];
+  let index = job?.completed.length || 0;
   const controller = new AbortController();
-  let timedOut = false;
-  const timeoutId = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, 45000);
+  const request = { controller, timeoutId: null };
   const thisRequest = ++requestNumber;
-  activeRequest = { controller, timeoutId };
+  activeRequest = request;
   currentText = trimmed;
   translation = "";
   elements.copyLabel.textContent = "复制译文";
   showResult("loading");
   updateControls();
 
+  let timedOut = false;
   try {
-    const result = await translate({ text: trimmed, settings: config, signal: controller.signal });
-    if (thisRequest !== requestNumber) return;
-    translation = result;
-    showResult("success", result);
+    let result = "";
+    for (; index < chunks.length; index += 1) {
+      if (job) showResult("loading", `正在翻译第 ${index + 1}/${chunks.length} 段…`);
+      request.timeoutId = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, 45_000);
+      try {
+        result = await translate({
+          text: chunks[index].text, settings: config, signal: controller.signal, requireComplete: Boolean(job),
+        });
+      } finally {
+        clearTimeout(request.timeoutId);
+      }
+      if (thisRequest !== requestNumber) return;
+      if (timedOut) throw new Error("连接超时");
+      if (job) job.completed.push(result);
+    }
+    translation = job
+      ? job.completed.map((part, position) => part + chunks[position].separator).join("")
+      : result;
+    longJob = null;
+    showResult("success", translation);
   } catch (error) {
     if (thisRequest !== requestNumber) return;
-    if (timedOut) showResult("error", "连接超时（45 秒）。请检查服务状态后重试。");
-    else if (error?.name !== "AbortError") showResult("error", errorMessage(error));
+    const message = timedOut ? "连接超时（45 秒）。请检查服务状态后重试。" : errorMessage(error);
+    showResult("error", job ? `第 ${index + 1}/${chunks.length} 段未完成。${message}` : message);
   } finally {
-    clearTimeout(timeoutId);
     if (thisRequest === requestNumber) {
       activeRequest = null;
       updateControls();
@@ -217,13 +270,14 @@ function consumePendingSelection() {
     return;
   }
   const selected = pendingSelection;
-  if (!selected.result && !normalizedSettings(effectiveTarget())) return;
+  const needsTranslation = !selected.result && selected.text.trim().length <= MAX_TEXT_LENGTH;
+  if (needsTranslation && !normalizedSettings(effectiveTarget())) return;
   consumingSelectionId = selected.id;
   // Remove the event before displaying its result or translating its text. A
   // newer event has a separate key and can still supersede this operation.
   chrome.storage.session.remove(selected.storageKey).then(() => {
     if (pendingSelection?.id !== selected.id || newestSelection?.id !== selected.id
-        || (!selected.result && !normalizedSettings(effectiveTarget()))) return;
+        || (needsTranslation && !normalizedSettings(effectiveTarget()))) return;
     handledSelectionId = selected.id;
     pendingSelection = null;
     consumingSelectionId = null;
@@ -236,8 +290,10 @@ function consumePendingSelection() {
       translation = selected.result.translation;
       showResult("success", translation);
       updateControls();
-    } else {
+    } else if (needsTranslation) {
       runTranslation(selected.text);
+    } else {
+      updateControls();
     }
   }).catch(() => {
     if (pendingSelection?.id === selected.id) {
@@ -253,9 +309,6 @@ elements.input.addEventListener("input", () => {
   pendingSelection = null;
   consumingSelectionId = null;
   invalidateTranslation();
-  if (elements.input.value.length > MAX_TEXT_LENGTH) {
-    showResult("error", `原文超过 ${MAX_TEXT_LENGTH.toLocaleString("zh-CN")} 字，请缩短后重试。`);
-  }
   updateControls();
 });
 elements.input.addEventListener("keydown", (event) => {
@@ -277,14 +330,16 @@ elements.target.addEventListener("change", () => {
     temporaryTarget = selected;
     legacyTarget = null;
   }
-  if (previousTarget !== effectiveTarget() && (activeRequest || translation)) {
+  if (previousTarget !== effectiveTarget() && (activeRequest || translation || longJob)) {
     const text = currentText;
     invalidateTranslation();
-    runTranslation(text);
-  } else {
-    updateControls();
-    consumePendingSelection();
+    if (text.length <= MAX_TEXT_LENGTH) {
+      runTranslation(text);
+      return;
+    }
   }
+  updateControls();
+  consumePendingSelection();
 });
 elements.retry.addEventListener("click", () => runTranslation(currentText));
 elements.clear.addEventListener("click", () => {

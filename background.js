@@ -1,7 +1,8 @@
 import { compareSelections, selectionStorageKey, selectionWindowIdFromKey, shouldAcceptSelection } from './lib/selection.js';
 import { createPageActions, PAGE_TRANSLATION_MENU, PAGE_SUMMARY_MENU } from './lib/page-actions.js';
 import { DEFAULT_SETTINGS, TARGET_LANGUAGES } from './lib/config.js';
-import { translate } from './lib/translator.js';
+import { MAX_LONG_TEXT_LENGTH } from './lib/long-translation.js';
+import { MAX_TEXT_LENGTH, translate } from './lib/translator.js';
 
 const MENU_ID = 'translate-selection';
 const INLINE_TIMEOUT_MS = 25_000;
@@ -12,6 +13,7 @@ const INLINE_SWITCH_LANGUAGE = 'TRANSMATE_INLINE_SWITCH_LANGUAGE';
 const INLINE_OPEN_PANEL = 'TRANSMATE_INLINE_OPEN_PANEL';
 const INLINE_EXPORT_RESULT = 'TRANSMATE_INLINE_EXPORT_RESULT';
 const SHORTCUT_HINT = '请先选中文字，再按快捷键翻译。';
+const LONG_SELECTION_LIMIT = `选中内容最多支持 ${MAX_LONG_TEXT_LENGTH.toLocaleString('zh-CN')} 字符，请缩短选区后重试。`;
 const languageNames = new Intl.DisplayNames('zh-CN', { type: 'language', fallback: 'none' });
 
 function displayTargetLanguage(language) {
@@ -158,7 +160,7 @@ export function registerBackground(chromeApi, {
     const activeId = activeByTab.get(tabId)?.requestId;
     const keys = Object.keys(items).filter((key) => (key.startsWith(prefix)
       && key !== inlineSessionKey(tabId, activeId))
-      || (selectionWindowIdFromKey(key) !== null && items[key]?.tabId === tabId && items[key]?.result));
+      || (selectionWindowIdFromKey(key) !== null && items[key]?.tabId === tabId));
     if (hide) {
       await Promise.allSettled(keys.map((key) => {
         const saved = items[key];
@@ -202,13 +204,17 @@ export function registerBackground(chromeApi, {
     const obsolete = Object.entries(items).filter(([key, item]) => {
       const windowId = selectionWindowIdFromKey(key);
       return windowId !== null && (!shouldAcceptSelection(item, windowId)
-        || (item.result && windowId === selection.windowId && compareSelections(item, selection) < 0));
+        || (Number.isInteger(item.tabId) && windowId === selection.windowId && compareSelections(item, selection) < 0));
     }).map(([key]) => key);
     if (obsolete.length) await chromeApi.storage.session.remove(obsolete);
   }
 
   function fallbackToPanel(text, windowId) {
     if (!Number.isInteger(windowId)) return;
+    if (text.length > MAX_LONG_TEXT_LENGTH) {
+      chromeApi.sidePanel.open({ windowId }).catch(() => console.warn('无法打开翻译侧边栏'));
+      return;
+    }
     const selection = { ...createPanelSelection(windowId), text };
     const key = selectionStorageKey(windowId, selection.id);
     chromeApi.storage.session.set({ [key]: selection })
@@ -236,6 +242,7 @@ export function registerBackground(chromeApi, {
       order: entry.order, ...(entry.notice ? { notice: true } : {}),
       ...(retryOf ? { retryOf } : {}),
       ...(keyboard ? { keyboard: true } : {}),
+      ...(entry.text.length > MAX_TEXT_LENGTH ? { sourceOnly: true } : {}),
       ...languageData,
     });
     if (response?.ok !== true) throw new Error('无法显示翻译浮层');
@@ -327,10 +334,11 @@ export function registerBackground(chromeApi, {
     const tabId = tab.id;
     const windowId = tab.windowId;
     if (!intentCurrent(tabId, order)) return;
+    const overLimit = text.length > MAX_LONG_TEXT_LENGTH;
     const entry = {
-      tabId, windowId, text, frameId, documentId: null,
+      tabId, windowId, text: overLimit ? '' : text, frameId, documentId: null,
       requestId: crypto.randomUUID(), controller: null,
-      shown: false, configInvalidated: false, order, notice,
+      shown: false, configInvalidated: false, order, notice: notice || overLimit,
     };
     activeByTab.set(tabId, entry);
     try {
@@ -347,19 +355,20 @@ export function registerBackground(chromeApi, {
         cancel(entry, { hide: true });
         return;
       }
-      const settings = notice ? undefined : await readSettings(entry);
+      const settings = entry.notice || entry.text.length > MAX_TEXT_LENGTH ? undefined : await readSettings(entry);
       if (!current(entry) || !intentCurrent(tabId, order)) return;
       await show(entry, settings, { keyboard });
       if (!current(entry) || !intentCurrent(tabId, order)) return;
-      if (notice) {
+      if (entry.notice) {
         await send(entry, {
-          type: 'TRANSMATE_INLINE_RESULT', requestId: entry.requestId, error: SHORTCUT_HINT,
+          type: 'TRANSMATE_INLINE_RESULT', requestId: entry.requestId,
+          error: overLimit ? LONG_SELECTION_LIMIT : SHORTCUT_HINT,
         });
         return;
       }
       await persist(entry);
       if (!current(entry) || !intentCurrent(tabId, order)) return;
-      await runTranslation(entry, settings);
+      if (entry.text.length <= MAX_TEXT_LENGTH) await runTranslation(entry, settings);
     } catch {
       if (!current(entry)) return;
       cancel(entry, { hide: true });
@@ -478,17 +487,18 @@ export function registerBackground(chromeApi, {
     const [result, didOpen] = await Promise.all([exported, opened]);
     const target = configuredTarget({ targetLanguage: result?.targetLanguageId });
     if (!didOpen || !current(entry) || !matches(entry)
-        || latestPanelSelectionByWindow.get(windowId) !== selection.order
-        || typeof result?.translation !== 'string' || !result.translation.trim()
-        || !target) return { ok: false };
+        || latestPanelSelectionByWindow.get(windowId) !== selection.order) return { ok: false };
+    const sourceOnly = entry.text.length > MAX_TEXT_LENGTH && entry.text.length <= MAX_LONG_TEXT_LENGTH;
+    if (sourceOnly ? result?.sourceOnly !== true
+      : typeof result?.translation !== 'string' || !result.translation.trim() || !target) return { ok: false };
 
-    const completed = {
+    const handoff = {
       ...selection, tabId, text: entry.text,
-      result: { translation: result.translation, ...targetLanguageInfo(target) },
+      ...(sourceOnly ? {} : { result: { translation: result.translation, ...targetLanguageInfo(target) } }),
     };
-    const key = selectionStorageKey(windowId, completed.id);
-    await chromeApi.storage.session.set({ [key]: completed });
-    void prunePanelSelections(completed).catch(() => console.warn('无法清理过期选文'));
+    const key = selectionStorageKey(windowId, handoff.id);
+    await chromeApi.storage.session.set({ [key]: handoff });
+    void prunePanelSelections(handoff).catch(() => console.warn('无法清理过期选文'));
     return { ok: true };
   }
 
@@ -541,7 +551,7 @@ export function registerBackground(chromeApi, {
       return;
     }
     if (!restarting) return;
-    if (entry.notice || message.requestId !== entry.requestId) return { ok: false };
+    if (entry.notice || entry.text.length > MAX_TEXT_LENGTH || message.requestId !== entry.requestId) return { ok: false };
     return restart(entry, switching ? message.targetLanguage : entry.targetLanguageOverride);
   }
 
@@ -581,7 +591,7 @@ export function registerBackground(chromeApi, {
   chromeApi.windows?.onRemoved?.addListener((windowId) => latestPanelSelectionByWindow.delete(windowId));
 
   function invalidate(entry) {
-    if (entry.notice) return;
+    if (entry.notice || entry.text.length > MAX_TEXT_LENGTH) return;
     if (entry.configInvalidated) return;
     entry.configInvalidated = true;
     entry.controller?.abort();

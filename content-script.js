@@ -184,7 +184,7 @@
     }
     .result { font-size: 17px; font-weight: 550; line-height: 1.58; }
     .error { color: var(--error-ink); font-size: 13px; line-height: 1.6; }
-    .card[data-notice="true"] .error { color: var(--ink); }
+    .card[data-notice="true"] .error, .card[data-source-only="true"] .error { color: var(--ink); }
     .loading {
       display: flex;
       align-items: center;
@@ -423,7 +423,7 @@
   }
 
   function restartTranslation(targetLanguage) {
-    if (!state.requestId || state.notice || state.restart) return;
+    if (!state.requestId || state.notice || state.restart || state.status === 'source-only') return;
     const restart = { requestId: state.requestId, targetLanguage, queuedLanguage: null, replacementId: null };
     state.restart = restart;
     state.panelRequestId = null;
@@ -572,7 +572,8 @@
     });
     panelButton.addEventListener('click', async (event) => {
       const requestId = state.requestId;
-      if (!event.isTrusted || !requestId || state.status !== 'success' || state.panelRequestId) return;
+      if (!event.isTrusted || !requestId || state.panelRequestId
+          || (state.status !== 'success' && state.status !== 'source-only')) return;
       state.panelRequestId = requestId;
       panelButton.disabled = true;
       panelButton.textContent = '正在打开…';
@@ -625,7 +626,7 @@
 
   function renderTarget() {
     const { heading, targetPicker, targetSelect } = state.elements;
-    const showPicker = !state.notice && state.languages.length > 0;
+    const showPicker = !state.notice && state.status !== 'source-only' && state.languages.length > 0;
     heading.hidden = showPicker;
     targetPicker.hidden = !showPicker;
     if (!showPicker) return;
@@ -649,31 +650,34 @@
     const succeeded = state.status === 'success';
     const failed = state.status === 'error';
     const pending = state.status === 'loading';
+    const sourceOnly = state.status === 'source-only';
     const needsSettings = failed && /API Key|授权|域名权限|接口地址|翻译设置|目标语言/.test(state.error);
     if (source.textContent !== state.source) source.textContent = state.source;
     updateSourcePreview();
     sourceSection.hidden = state.notice;
     renderTarget();
     card.dataset.notice = String(state.notice);
+    card.dataset.sourceOnly = String(sourceOnly);
     loading.hidden = !pending || state.notice;
     result.hidden = !succeeded;
-    error.hidden = !failed;
+    error.hidden = !failed && !sourceOnly;
     result.textContent = succeeded ? state.translation : '';
-    error.textContent = failed ? state.error : '';
+    error.textContent = failed || sourceOnly ? state.error : '';
     footer.hidden = state.notice;
     retryButton.hidden = !succeeded && !failed;
     retryButton.textContent = succeeded ? '重新翻译' : '重试';
     optionsButton.hidden = !failed;
     optionsButton.classList.toggle('primary', needsSettings);
     retryButton.classList.toggle('primary', failed && !needsSettings);
-    panelButton.hidden = !succeeded;
+    panelButton.hidden = !succeeded && !sourceOnly;
+    panelButton.classList.toggle('primary', sourceOnly);
     panelButton.disabled = Boolean(state.panelRequestId);
     panelButton.textContent = state.panelRequestId ? '正在打开…' : '在侧栏打开';
     copyButton.hidden = !succeeded;
     copyLabel.textContent = '复制译文';
     stopButton.hidden = !pending;
     if (focused?.closest('[hidden]')) card.focus({ preventScroll: true });
-    announcement.textContent = succeeded ? '翻译完成。' : failed ? state.error : state.notice ? '' : '正在翻译。';
+    announcement.textContent = succeeded ? '翻译完成。' : failed || sourceOnly ? state.error : state.notice ? '' : '正在翻译。';
     schedulePosition();
   }
 
@@ -704,8 +708,9 @@
     state.translation = '';
     state.targetLanguageId = message.targetLanguageId || '';
     state.targetLanguage = message.targetLanguage || '';
-    state.error = '';
-    state.status = 'loading';
+    const sourceOnly = message.sourceOnly === true;
+    state.error = sourceOnly ? '选文较长，请在侧栏分段翻译。' : '';
+    state.status = sourceOnly ? 'source-only' : 'loading';
     if (!message.retryOf) {
       state.languages = Array.isArray(message.languages) ? message.languages : [];
       state.elements.targetSelect.replaceChildren(...state.languages.map(({ id, name }) => new Option(name, id)));
@@ -716,7 +721,8 @@
     }
     render();
     if (message.keyboard === true) state.elements.card.focus({ preventScroll: true });
-    startWatchdog(message.requestId);
+    if (sourceOnly) clearWatchdog();
+    else startWatchdog(message.requestId);
     return true;
   }
 
@@ -745,9 +751,15 @@
     }
     if (message.type === MESSAGE.exportResult) {
       const requestId = state.panelRequestId;
-      sendResponse(requestId && message.requestId === requestId && state.requestId === requestId
-        && state.status === 'success'
-        ? { translation: state.translation, targetLanguageId: state.targetLanguageId } : {});
+      let exported = {};
+      if (requestId && message.requestId === requestId && state.requestId === requestId) {
+        if (state.status === 'success') {
+          exported = { translation: state.translation, targetLanguageId: state.targetLanguageId };
+        } else if (state.status === 'source-only') {
+          exported = { sourceOnly: true };
+        }
+      }
+      sendResponse(exported);
       return;
     }
     if (message.type === MESSAGE.result) {

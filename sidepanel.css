@@ -65,6 +65,7 @@ h1 em{font-style:normal;color:var(--accent-dark)}
 .source-actions{display:flex;align-items:center;justify-content:space-between;margin-top:3px;min-height:26px}
 .text-button{padding:4px 0;border:0;background:none;color:var(--accent-dark);font-size:11px;font-weight:700}
 .text-button:disabled{color:#b8b9b1}.keyboard-hint{font-size:10px;color:#a6a79f}
+.source-plan{margin:8px 0 0;color:var(--muted);font-size:12px;line-height:1.6}
 .direction-line{display:flex;align-items:center;gap:8px;margin:11px 0 14px;color:var(--muted);font-size:10px}
 .direction-dash{height:1px;width:15px;flex:none;background:var(--accent)}
 .direction-line label{flex:none;font-size:12px}
