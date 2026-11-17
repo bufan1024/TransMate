@@ -57,6 +57,7 @@
             <button class="text-button" id="clear-source" type="button" disabled>清空</button>
             <span class="keyboard-hint">⌘ / Ctrl + Enter</span>
           </div>
+          <p id="source-plan" class="source-plan" role="status" hidden></p>
           <div class="direction-line">
             <span class="direction-dash" aria-hidden="true"></span>
             <label for="target-language">译为</label>
@@ -68,7 +69,7 @@
             <span class="sr-only" id="target-scope">临时选择仅在当前侧栏生效。</span>
           </div>
           <button class="translate-button" id="translate-button" type="button" disabled>
-            <span>开始翻译</span><span class="button-arrow" aria-hidden="true">↗</span>
+            <span id="translate-label">开始翻译</span><span class="button-arrow" aria-hidden="true">↗</span>
           </button>
           <button class="translate-button stop-button" id="stop-button" type="button" aria-controls="result-panel" hidden>停止</button>
         </section>
@@ -77,7 +78,7 @@
           <div class="section-label"><span class="section-index">02</span><h2 id="result-title">译文</h2><span class="section-rule"></span><span class="result-state" id="result-state">等待输入</span></div>
           <div class="result-panel" id="result-panel" aria-live="polite">
             <div class="result-empty" id="result-empty"><span class="empty-glyph" aria-hidden="true">“</span><p>好文字，值得被读懂。</p><small>翻译结果会出现在这里</small></div>
-            <div class="result-loading" id="result-loading" hidden><span class="loader" aria-hidden="true"></span><span>正在斟酌字句…</span></div>
+            <div class="result-loading" id="result-loading" hidden><span class="loader" aria-hidden="true"></span><span id="loading-progress">正在翻译…</span></div>
             <p class="result-stopped" id="result-stopped" hidden>翻译已停止</p>
             <p class="result-text" id="result-preview" dir="auto" aria-hidden="true" hidden></p>
             <p class="result-text" id="result-text" hidden></p>

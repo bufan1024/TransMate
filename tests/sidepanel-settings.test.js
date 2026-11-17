@@ -98,11 +98,11 @@ function beginTranslation(app) {
   app.element('#translate-button').click();
 }
 
-function resolveTranslation(request, content) {
+function resolveTranslation(request, content, finishReason) {
   request.resolve({
     ok: true,
     status: 200,
-    json: async () => ({ choices: [{ message: { content } }] }),
+    json: async () => ({ choices: [{ message: { content }, finish_reason: finishReason }] }),
   });
 }
 
@@ -273,6 +273,87 @@ test('temporary target overrides restart active and completed translations and c
     resolveTranslation(app.requests[2], 'Bonjour');
     await app.flush();
     assert.equal(app.element('#result-text').textContent, 'Bonjour');
+  } finally {
+    for (const request of app.requests) resolveTranslation(request, '');
+    await app.flush();
+    app.restore();
+  }
+});
+
+
+const longParagraphs = ['甲'.repeat(3400), '乙'.repeat(2800)];
+const longSource = longParagraphs.join("\n\n");
+
+function setLongSource(app, text = longSource) {
+  app.element('#source-text').value = text;
+  app.element('#source-text').dispatchEvent({ type: 'input' });
+}
+
+function requestedParts(app) {
+  return app.requests.map(({ options }) => JSON.parse(options.body).messages[1].content);
+}
+
+test('long translation previews costs, stops safely, and resumes only the unfinished part in order', async () => {
+  const app = await mountSidepanel();
+  try {
+    setLongSource(app);
+    assert.match(app.element('#source-plan').textContent, /2 段.*2 次请求.*费用/);
+    assert.deepEqual(requestedParts(app), []);
+    app.element('#translate-button').click();
+    await app.flush();
+    assert.deepEqual(requestedParts(app), [longParagraphs[0]]);
+    assert.match(app.element('#loading-progress').textContent, /1\/2/);
+    resolveTranslation(app.requests[0], 'First');
+    await app.flush();
+
+    assert.deepEqual(requestedParts(app), longParagraphs);
+    assert.match(app.element('#loading-progress').textContent, /2\/2/);
+    app.element('#stop-button').click();
+    assert.equal(app.requests[1].options.signal.aborted, true);
+    assert.equal(app.element('#source-text').value, longSource);
+    assert.match(app.element('#source-plan').textContent, /已完成 1\/2 段.*1 次请求/);
+    assert.equal(app.element('#copy-button').disabled, true);
+    resolveTranslation(app.requests[1], 'Too late');
+    await app.flush();
+    assert.equal(app.element('#result-text').hidden, true);
+
+    app.element('#retry-button').click();
+    await app.flush();
+    assert.deepEqual(requestedParts(app), [...longParagraphs, longParagraphs[1]]);
+    resolveTranslation(app.requests[2], 'Second');
+    await app.flush();
+    assert.equal(app.element('#result-text').textContent, 'First\n\nSecond');
+    assert.equal(app.element('#copy-button').disabled, false);
+  } finally {
+    for (const request of app.requests) resolveTranslation(request, '');
+    await app.flush();
+    app.restore();
+  }
+});
+
+test('truncated chunks do not become a completed translation and a new language needs explicit start', async () => {
+  const app = await mountSidepanel();
+  try {
+    setLongSource(app);
+    app.element('#translate-button').click();
+    await app.flush();
+    resolveTranslation(app.requests[0], 'First');
+    await app.flush();
+    resolveTranslation(app.requests[1], 'Partial result', 'length');
+    await app.flush();
+    assert.match(app.element('#error-message').textContent, /第 2\/2 段未完成.*长度限制/);
+    assert.equal(app.element('#copy-button').disabled, true);
+
+    app.selectTarget('ja');
+    await app.flush();
+    assert.deepEqual(requestedParts(app), longParagraphs);
+    assert.match(app.element('#source-plan').textContent, /2 次请求/);
+    setLongSource(app, '甲'.repeat(30001));
+    assert.equal(app.element('#translate-button').disabled, true);
+    assert.match(app.element('#source-plan').textContent, /30,000/);
+    app.element('#translate-button').click();
+    await app.flush();
+    assert.deepEqual(requestedParts(app), longParagraphs);
   } finally {
     for (const request of app.requests) resolveTranslation(request, '');
     await app.flush();
