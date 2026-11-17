@@ -208,6 +208,7 @@ function maybeTranslateSelection() {
   if (!shouldAcceptSelection(pendingSelection, currentWindowId)) {
     discardSelection(pendingSelection.storageKey);
     pendingSelection = null;
+    updateControls();
     return;
   }
   const selected = pendingSelection;
@@ -220,6 +221,10 @@ function maybeTranslateSelection() {
     handledSelectionId = selected.id;
     pendingSelection = null;
     consumingSelectionId = null;
+    if (!shouldAcceptSelection(selected, currentWindowId)) {
+      updateControls();
+      return;
+    }
     runTranslation(selected.text);
   }).catch(() => {
     if (pendingSelection?.id === selected.id) {
