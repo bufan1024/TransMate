@@ -622,6 +622,13 @@ try {
   assert.equal(requests.length, beforeEmptyShortcut, '空选文快捷键不得调用 AI 服务');
   assert.equal(context.pages().length, initialPageCount, '快捷键翻译不得新建窗口或标签页');
 
+  await panel.bringToFront();
+  const panelPageStatus = panel.locator('#page-action-status');
+  const beforeUnsupportedPage = requests.length;
+  await panel.getByRole('button', { name: '翻译本页' }).evaluate((button) => button.click());
+  await panelPageStatus.filter({ hasText: '无法访问当前网页' }).waitFor();
+  assert.equal(requests.length, beforeUnsupportedPage, '受限页面不得发出翻译请求');
+
   const articleUrl = new URL('/article-fixture', endpoint).href;
   const [articlePage, articleTab] = await Promise.all([
     context.waitForEvent('page', { timeout: 10000 }),
@@ -635,7 +642,10 @@ try {
   const pageTranslations = articlePage.locator('[data-transmate-page-translation]');
   const pageRequestCount = requests.length;
 
-  await triggerContextMenu(worker, articleTab.id, 'translate-page');
+  // The panel is hosted in a tab here. Dispatch the click without focusing its
+  // test host so the article remains the same active tab as in a native panel.
+  await panel.getByRole('button', { name: '翻译本页' }).evaluate((button) => button.click());
+  await panelPageStatus.filter({ hasText: '已在网页上启动双语翻译' }).waitFor();
   await pageStatus.getByRole('button', { name: '移除译文' }).waitFor();
   assert.deepEqual(await pageTranslations.allTextContents(), articleTranslations);
   assert.equal(await articlePage.locator('#article-intro').textContent(), articleBlocks[1]);
@@ -647,9 +657,15 @@ try {
     '应按正文顺序发送文字，过滤隐藏、可编辑和导航内容',
   );
 
+  await panel.getByRole('button', { name: '总结本页' }).evaluate((button) => button.click());
+  await panel.locator('#page-summary-text').filter({ hasText: articleSummary }).waitFor();
+  assert.equal(await worker.evaluate(() => globalThis.__transmateTestSidePanelOpens), 0,
+    '侧栏内总结不需要再次打开侧栏');
+
   const summaryRequestCount = requests.length;
   await triggerContextMenu(worker, articleTab.id, 'summarize-page');
-  await waitUntil(async () => await panel.locator('#page-summary-text').isVisible()
+  await waitUntil(async () => requests.length > summaryRequestCount
+    && await panel.locator('#page-summary-text').isVisible()
     && await panel.locator('#page-summary-text').textContent() === articleSummary,
   '页面总结出现在发起操作的窗口');
   assert.equal(await secondPanel.locator('#page-summary').isVisible(), false,

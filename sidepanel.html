@@ -21,10 +21,12 @@
       </header>
 
       <main>
-        <section class="intro" aria-labelledby="page-title">
-          <div class="eyebrow"><span class="eyebrow-line"></span> READING COMPANION / 01</div>
-          <h1 id="page-title">让文字，<br /><em>更近一点。</em></h1>
-          <p>选中网页文字，右键点“用 TransMate 翻译”；也可以在这里直接输入。</p>
+        <section class="page-tools" aria-label="当前网页">
+          <div class="page-tools-buttons">
+            <button class="secondary-button" id="translate-current-page" type="button">翻译本页</button>
+            <button class="secondary-button" id="summarize-current-page" type="button">总结本页</button>
+          </div>
+          <p class="page-action-status" id="page-action-status" role="status"></p>
         </section>
 
         <div class="connection-banner" id="connection-banner" hidden>

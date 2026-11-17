@@ -1,5 +1,5 @@
 import { selectionStorageKey, selectionWindowIdFromKey, shouldAcceptSelection } from './lib/selection.js';
-import { createPageActions, PAGE_TRANSLATION_MENU, PAGE_SUMMARY_MENU } from './lib/page-actions.js';
+import { createPageActions, PAGE_TRANSLATION_MENU, PAGE_SUMMARY_MENU, PANEL_PAGE_ACTION } from './lib/page-actions.js';
 import { translate } from './lib/translator.js';
 
 const MENU_ID = 'translate-selection';
@@ -403,8 +403,23 @@ export function registerBackground(chromeApi, {
     return entry;
   }
 
+  async function handlePanelPageAction(message, sender) {
+    const error = "无法访问当前网页。请切到普通网页后从网页右键菜单启动。";
+    const { action, windowId } = message;
+    if (sender?.url !== chromeApi.runtime.getURL('sidepanel.html') || (sender.frameId != null && sender.frameId !== 0)
+        || !Number.isInteger(windowId) || windowId < 0
+        || (action !== PAGE_TRANSLATION_MENU && action !== PAGE_SUMMARY_MENU)) return { ok: false, error };
+    const [tab] = await chromeApi.tabs.query({ active: true, windowId });
+    if (tab?.windowId !== windowId || !isInjectableUrl(tab.url)) return { ok: false, error };
+    const started = action === PAGE_TRANSLATION_MENU
+      ? await pageActions.startTranslation(tab, { waitForDemand: false })
+      : await pageActions.openSummary(tab, { panelIsOpen: true });
+    return started ? { ok: true } : { ok: false, error };
+  }
+
   async function onMessage(message, sender) {
     if (!message || typeof message !== 'object') return;
+    if (message.type === PANEL_PAGE_ACTION) return handlePanelPageAction(message, sender);
     if (message.type === 'TRANSMATE_PAGE_CANCEL' || message.type === 'TRANSMATE_PAGE_MORE') {
       return pageActions.handleMessage(message, sender);
     }
@@ -457,6 +472,10 @@ export function registerBackground(chromeApi, {
     void onCommand(command, tab).catch(() => console.warn('无法处理快捷键翻译'));
   });
   chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.type === PANEL_PAGE_ACTION) {
+      void onMessage(message, sender).then(sendResponse, () => sendResponse({ ok: false }));
+      return true;
+    }
     if (message?.type === 'TRANSMATE_PAGE_MORE') {
       void onMessage(message, sender).then(() => sendResponse?.(), () => sendResponse?.());
       return true;

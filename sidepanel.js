@@ -1,4 +1,5 @@
 import { DEFAULT_SETTINGS, validateSettings } from "./lib/config.js";
+import { PAGE_SUMMARY_MENU, PAGE_TRANSLATION_MENU, PANEL_PAGE_ACTION } from "./lib/page-actions.js";
 import { createPageSummaryPanel } from "./lib/page-summary-panel.js";
 import { compareSelections, selectionStorageKey, selectionStoragePrefix, selectionWindowIdFromKey, shouldAcceptSelection } from "./lib/selection.js";
 import { translate } from "./lib/translator.js";
@@ -61,6 +62,57 @@ function normalizedSettings() {
     return null;
   }
 }
+
+const pageActionButtons = [
+  [document.querySelector("#translate-current-page"), PAGE_TRANSLATION_MENU],
+  [document.querySelector("#summarize-current-page"), PAGE_SUMMARY_MENU],
+];
+const pageActionStatus = document.querySelector("#page-action-status");
+let pageActionVersion = 0;
+
+function setPageActionBusy(busy) {
+  for (const [button] of pageActionButtons) button.disabled = busy;
+}
+
+async function runPageAction(action) {
+  if (!normalizedSettings()) {
+    pageActionStatus.textContent = "请先在设置中配置 AI 服务。";
+    return;
+  }
+  if (currentWindowId === null) {
+    pageActionStatus.textContent = "无法确认当前窗口，请重新打开侧栏。";
+    return;
+  }
+  const version = ++pageActionVersion;
+  setPageActionBusy(true);
+  pageActionStatus.textContent = "正在读取当前网页…";
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: PANEL_PAGE_ACTION, windowId: currentWindowId, action,
+    });
+    if (version !== pageActionVersion) return;
+    if (response?.ok) {
+      pageActionStatus.textContent = action === PAGE_TRANSLATION_MENU ? "已在网页上启动双语翻译。" : "";
+    } else {
+      pageActionStatus.textContent = response?.error || "无法启动网页操作，请从网页右键菜单重试。";
+    }
+  } catch {
+    if (version === pageActionVersion) pageActionStatus.textContent = "无法启动网页操作，请从网页右键菜单重试。";
+  } finally {
+    if (version === pageActionVersion) setPageActionBusy(false);
+  }
+}
+
+for (const [button, action] of pageActionButtons) {
+  button.addEventListener("click", () => runPageAction(action));
+}
+
+chrome.tabs?.onActivated?.addListener(({ windowId }) => {
+  if (windowId !== currentWindowId) return;
+  pageActionVersion += 1;
+  pageActionStatus.textContent = "";
+  setPageActionBusy(false);
+});
 
 function updateControls() {
   const length = elements.input.value.length;
