@@ -19,6 +19,8 @@ function fakeElement() {
     disabled: false,
     style: {},
     append() {},
+    querySelectorAll() { return []; },
+    replaceChildren() {},
     addEventListener(type, listener) {
       const callbacks = listeners.get(type) || [];
       callbacks.push(listener);

@@ -1,6 +1,7 @@
 import { compareSelections, selectionStorageKey, selectionWindowIdFromKey, shouldAcceptSelection } from './lib/selection.js';
 import { createPageActions, PAGE_TRANSLATION_MENU, PAGE_SUMMARY_MENU, PANEL_PAGE_ACTION } from './lib/page-actions.js';
 import { DEFAULT_SETTINGS, TARGET_LANGUAGES } from './lib/config.js';
+import { recordTranslation } from './lib/translation-history.js';
 import { MAX_LONG_TEXT_LENGTH } from './lib/long-translation.js';
 import { MAX_TEXT_LENGTH, translate } from './lib/translator.js';
 
@@ -318,6 +319,11 @@ export function registerBackground(chromeApi, {
         }
         : result);
       if (response?.ok !== true) cancel(entry);
+      else if (current(entry) && !entry.configInvalidated && !timedOut && result.translation) {
+        void recordTranslation(chromeApi.storage.local, globalThis.navigator?.locks, {
+          source: entry.text, translation: result.translation, targetLanguage: result.targetLanguageId,
+        }).catch(() => {});
+      }
     } catch {
       cancel(entry);
     }
