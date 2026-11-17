@@ -68,6 +68,11 @@
                 </div>
                 <small>无需密钥仅适用于 localhost 和 127.0.0.1。</small>
               </div>
+              <div class="field" id="claude-workspace" hidden>
+                <label for="workspace-id">Claude 工作区 ID <span class="optional">按密钥范围填写</span></label>
+                <input id="workspace-id" name="workspaceId" type="text" autocomplete="off" spellcheck="false" placeholder="wrkspc_…" />
+                <small>组织范围的 API Key 需要工作区 ID。仅限单个工作区的密钥可留空。</small>
+              </div>
               <div class="field-row">
                 <div class="field" id="api-key-field"><label for="api-key">API Key <span class="required">*</span></label><input id="api-key" name="apiKey" type="password" autocomplete="off" spellcheck="false" aria-describedby="key-status" placeholder="填写新的 API Key" /><small id="key-status">正在读取已保存配置…</small></div>
                 <div class="field"><label for="model">模型 ID <span class="required">*</span></label><input id="model" name="model" type="text" autocomplete="off" spellcheck="false" placeholder="填写服务支持的模型 ID" required /></div>

@@ -30,7 +30,9 @@
 
 ## AI 服务配置
 
-支持 OpenAI 兼容的 Chat Completions 协议。地址需填写完整的请求 URL，例如 `https://api.openai.com/v1/chat/completions`。内置预设使用以 `/chat/completions` 结尾的地址和 Bearer API Key。自定义服务可使用其他请求路径，也可选择 `x-api-key` 或 `api-key` 请求头。只有 `localhost` 和 `127.0.0.1` 可使用 HTTP 或选择无需密钥模式。接口地址不能包含内嵌账号、查询参数或片段。
+支持 OpenAI 兼容的 Chat Completions 和原生 Claude Messages 协议。Chat Completions 预设使用以 `/chat/completions` 结尾的地址和 Bearer API Key。自定义服务可使用其他请求路径，也可选择 `x-api-key` 或 `api-key` 请求头。只有 `localhost` 和 `127.0.0.1` 可使用 HTTP 或选择无需密钥模式。接口地址不能包含内嵌账号、查询参数或片段。
+
+使用 Claude 时选择「Claude」，填写 Claude Console API Key 和所用模型的 ID。默认地址为 `https://api.anthropic.com/v1/messages`。组织范围的密钥需要填写工作区 ID，单工作区密钥可留空。浏览器直连受组织策略限制。 [Claude API 认证说明](https://platform.claude.com/docs/en/manage-claude/authentication)
 
 可在设置页保存多套带名称的 AI 服务配置，在设置页「设为当前」，或从侧边栏的「AI 配置」切换。每套配置保存各自的服务、模型、密钥和翻译偏好。旧版保存的单套配置会显示为「默认配置」。
 

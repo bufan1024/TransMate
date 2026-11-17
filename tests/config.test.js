@@ -17,17 +17,28 @@ const valid = {
   prompt: '',
 };
 
-test('provider presets point to the documented Chat Completions endpoints', () => {
+test('provider presets point to their documented API endpoints', () => {
   assert.deepEqual(
     PROVIDERS.filter(({ id }) => id !== 'custom').map(({ id, endpoint }) => ({ id, endpoint })),
     [
       { id: 'openai', endpoint: 'https://api.openai.com/v1/chat/completions' },
       { id: 'deepseek', endpoint: 'https://api.deepseek.com/chat/completions' },
       { id: 'openrouter', endpoint: 'https://openrouter.ai/api/v1/chat/completions' },
+      { id: 'anthropic', endpoint: 'https://api.anthropic.com/v1/messages' },
     ],
   );
   assert.equal(DEFAULT_SETTINGS.provider, 'openai');
   assert.equal(DEFAULT_SETTINGS.endpoint, 'https://api.openai.com/v1/chat/completions');
+});
+
+test('Claude settings select its Messages path and optional workspace ID', () => {
+  const input = { ...valid, provider: 'anthropic', endpoint: '', workspaceId: ' wrkspc_example01 ' };
+  assert.equal(validateSettings(input).endpoint, 'https://api.anthropic.com/v1/messages');
+  assert.equal(validateSettings(input).workspaceId, 'wrkspc_example01');
+  assert.equal(originPatternForEndpoint('https://api.anthropic.com/v1/messages', 'anthropic'), 'https://api.anthropic.com/*');
+  assert.throws(() => validateSettings({ ...input, endpoint: 'https://example.com/v1/chat/completions' }), /Messages/);
+  assert.throws(() => validateSettings({ ...input, workspaceId: 'unsafe\r\nid' }), /工作区 ID/);
+  assert.equal(Object.hasOwn(validateSettings({ ...valid, workspaceId: input.workspaceId }), 'workspaceId'), false);
 });
 
 test('default target language uses the options select value for Simplified Chinese', () => {
