@@ -16,12 +16,11 @@ button:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px sol
 .brand-word span{font-style:italic;font-weight:400}
 .icon-button{width:36px;height:36px;border:1px solid transparent;border-radius:50%;background:transparent;color:var(--ink);display:grid;place-items:center;transition:background .2s,border-color .2s,transform .2s}
 .icon-button svg{width:20px;height:20px}.icon-button:hover{background:var(--paper-2);border-color:var(--line);transform:rotate(30deg)}
-.intro{padding:30px 0 24px;animation:reveal .55s ease-out both}
-.eyebrow{display:flex;align-items:center;gap:8px;font-size:9px;letter-spacing:1.6px;font-weight:700;color:var(--accent-dark)}
-.eyebrow-line{height:1px;width:17px;background:var(--accent)}
-h1{margin:14px 0 9px;font-family:"Iowan Old Style","Baskerville","Songti SC",Georgia,serif;font-size:clamp(29px,9vw,39px);line-height:1.17;letter-spacing:-1.6px;font-weight:600}
-h1 em{font-style:normal;color:var(--accent-dark)}
-.intro p{margin:0;color:var(--muted);font-size:12px;line-height:1.8}
+.page-tools { margin: 16px 0; }
+.page-tools-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.page-tools-buttons button { flex: 1; }
+.page-action-status { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.page-action-status:empty { margin: 0; }
 .connection-banner{display:flex;gap:9px;align-items:center;margin:0 0 18px;padding:12px 11px;background:#fff6e9;border:1px solid #ebd7b8;border-radius:10px;color:#704c25;font-size:11px;line-height:1.5;animation:reveal .3s ease-out both}
 .banner-symbol{display:grid;place-items:center;flex:none;width:16px;height:16px;border-radius:50%;background:#e9b26e;color:#3f2a13;font-weight:800;font-size:11px}
 .connection-banner>span:nth-child(2){flex:1}
@@ -94,5 +93,5 @@ h1 em{font-style:normal;color:var(--accent-dark)}
 footer{display:flex;align-items:center;gap:7px;margin-top:28px;padding-top:13px;border-top:1px solid var(--line);color:#96998e;font-size:10px}
 .footer-dot{width:5px;height:5px;border-radius:50%;background:var(--olive)}
 @keyframes reveal{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@keyframes spin{to{transform:rotate(360deg)}}
-@media(max-width:330px){.app-shell{padding-left:17px;padding-right:17px}.intro{padding-top:23px}.translator-card{padding:14px}.keyboard-hint{font-size:9px}}
+@media(max-width:330px){.app-shell{padding-left:17px;padding-right:17px}.translator-card{padding:14px}.keyboard-hint{font-size:9px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;transition-duration:.01ms!important}}

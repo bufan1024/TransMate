@@ -125,6 +125,37 @@ function mockPageDemand(api, blocks) {
   return { reveal: (index) => { visible = blocks.slice(index, index + 1); } };
 }
 
+test('side panel starts page actions only for the active tab in its window', async () => {
+  const { api, calls } = fakeChrome();
+  api.runtime.getURL = (resource) => `chrome-extension://transmate/${resource}`;
+  const router = registerBackground(api);
+  const message = { type: 'TRANSMATE_PANEL_PAGE_ACTION', action: 'summarize-page', windowId: 7 };
+
+  const fromPage = { url: 'https://example.test/not-the-panel', tab: tab(), frameId: 0 };
+  assert.equal((await router.onMessage(message, fromPage)).ok, false);
+  assert.deepEqual(calls.queries, []);
+  const panel = { url: 'chrome-extension://transmate/sidepanel.html' };
+  assert.equal((await router.onMessage(message, panel)).ok, true);
+  assert.deepEqual(calls.queries, [{ active: true, windowId: 7 }]);
+  assert.equal(calls.opens.length, 0);
+  const [published] = Object.values(calls.writes[0]);
+  assert.equal(published.tabId, 17);
+  assert.equal(published.documentId, 'doc-17-0');
+});
+
+test('side panel reports unavailable page access and does not request a translation', async () => {
+  const { api, calls } = fakeChrome({ currentTab: tab(17, 7, 'chrome://extensions') });
+  api.runtime.getURL = (resource) => `chrome-extension://transmate/${resource}`;
+  const router = registerBackground(api, { translatePageImpl: async () => assert.fail('unexpected translation') });
+  const panel = { url: 'chrome-extension://transmate/sidepanel.html' };
+  const outcome = await router.onMessage({
+    type: 'TRANSMATE_PANEL_PAGE_ACTION', action: 'translate-page', windowId: 7,
+  }, panel);
+  assert.equal(outcome.ok, false);
+  assert.match(outcome.error, /网页/);
+  assert.equal(calls.injections.length, 0);
+});
+
 test('installs selection and page menus, preserves toolbar side panel, and protects local settings', () => {
   const { api, calls, listeners } = fakeChrome();
   registerBackground(api);
