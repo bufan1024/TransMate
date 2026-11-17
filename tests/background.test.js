@@ -20,7 +20,7 @@ async function waitFor(predicate) {
 
 function fakeChrome({
   settings = { apiKey: 'private-test-key' }, session = {}, inject, storageAccessError = false,
-  selectionResults = [], currentTab = tab(), pageTranslationSites = [],
+  selectionResults = [], currentTab = tab(), pageTranslationSites = [], selectionLauncherEnabled,
 } = {}) {
   const sessionState = { ...session };
   const listeners = {};
@@ -57,7 +57,7 @@ function fakeChrome({
           if (storageAccessError) throw new Error('access level denied');
         },
         get: async (keys) => {
-          const stored = { settings, pageTranslationSites };
+          const stored = { settings, pageTranslationSites, selectionLauncherEnabled };
           if (keys == null) return stored;
           const requested = Array.isArray(keys) ? keys : [keys];
           return Object.fromEntries(requested.filter((key) => key in stored).map((key) => [key, stored[key]]));
@@ -85,8 +85,10 @@ function fakeChrome({
         if (details.func) return typeof selectionResults === 'function'
           ? selectionResults(details) : selectionResults;
         if (inject) return inject(details);
-        const frameId = details.target.frameIds[0];
-        return [{ frameId, documentId: 'doc-' + details.target.tabId + '-' + frameId, result: new URL(currentTab.url).origin }];
+        const suppliedDocumentId = details.target.documentIds?.[0];
+        const frameId = suppliedDocumentId ? Number(suppliedDocumentId.split('-').at(-1)) : details.target.frameIds[0];
+        const documentId = suppliedDocumentId ?? 'doc-' + details.target.tabId + '-' + frameId;
+        return [{ frameId, documentId, result: new URL(currentTab.url).origin }];
       },
     },
     tabs: {
@@ -486,6 +488,61 @@ test('right-click sends the target language of the result without exposing provi
   assert.equal(JSON.stringify(calls.messages).includes(settings.endpoint), false);
 });
 
+test('the selection button needs opt-in, permission, and a live extension document', async () => {
+  for (const [selectionLauncherEnabled, granted] of [[undefined, true], [true, false], [true, true]]) {
+    const { api, calls } = fakeChrome({ selectionLauncherEnabled });
+    api.runtime.id = 'transmate-test';
+    api.permissions.contains = async () => granted;
+    const router = registerBackground(api, { translateImpl: async () => assert.fail('unexpected translation') });
+    const click = { type: 'TRANSMATE_SELECTION_LAUNCHER_START', text: 'Selected text' };
+    const page = { ...sender(), id: api.runtime.id, url: tab().url, tab: tab() };
+    const status = await router.onMessage({ type: 'TRANSMATE_SELECTION_LAUNCHER_STATUS' }, page);
+    assert.equal(status.enabled, selectionLauncherEnabled === true && granted);
+    assert.deepEqual(await router.onMessage(click, { ...page, id: 'wrong-extension' }), { ok: false });
+    assert.deepEqual(await router.onMessage(click, { ...page, url: 'chrome://settings/' }), { ok: false });
+    assert.deepEqual(await router.onMessage(click, { ...page, documentId: undefined }), { ok: false });
+    assert.deepEqual(await router.onMessage(click, { ...page, documentLifecycle: 'cached' }), { ok: false });
+    if (!status.enabled) assert.deepEqual(await router.onMessage(click, page), { ok: false });
+    assert.deepEqual(calls.injections, []);
+  }
+});
+
+test('a selection button click routes through the existing translator in the clicked document', async () => {
+  const settings = { apiKey: 'private-button-test-key', targetLanguage: 'ja' };
+  const { api, calls } = fakeChrome({ selectionLauncherEnabled: true, settings });
+  api.runtime.id = 'transmate-test';
+  const translated = [];
+  const router = registerBackground(api, {
+    translateImpl: async ({ text, settings: current }) => { translated.push([text, current]); return '翻訳'; },
+  });
+  const page = { ...sender(17, 4), id: api.runtime.id, url: tab().url, tab: tab() };
+  const click = { type: 'TRANSMATE_SELECTION_LAUNCHER_START', text: '  Selected text  ' };
+  assert.deepEqual(await router.onMessage(click, page), { ok: true });
+  await waitFor(() => messages(calls, 'TRANSMATE_INLINE_RESULT').length === 1);
+  assert.deepEqual(translated, [['Selected text', settings]]);
+  assert.deepEqual(calls.injections[0], {
+    target: { tabId: 17, documentIds: ['doc-17-4'] }, files: ['content-script.js'],
+  });
+  assert.deepEqual(messages(calls, 'TRANSMATE_INLINE_RESULT')[0].options, { documentId: 'doc-17-4' });
+  assert.doesNotMatch(JSON.stringify(calls.messages), /private-button-test-key/);
+});
+
+test('a selection button click never falls back to a different frame after navigation', async () => {
+  const { api, calls } = fakeChrome({
+    selectionLauncherEnabled: true,
+    inject: async () => { throw new Error('Document navigated before injection'); },
+  });
+  api.runtime.id = 'transmate-test';
+  const router = registerBackground(api, { translateImpl: async () => assert.fail('unexpected translation') });
+  const page = { ...sender(17, 4), id: api.runtime.id, url: tab().url, tab: tab() };
+  const click = { type: 'TRANSMATE_SELECTION_LAUNCHER_START', text: 'Selected text' };
+  assert.deepEqual(await router.onMessage(click, page), { ok: true });
+  await waitFor(() => calls.injections.length > 0 && !router.activeByTab.has(17));
+  assert.equal(calls.injections.length, 1);
+  assert.deepEqual(calls.opens, []);
+  assert.deepEqual(messages(calls, 'TRANSMATE_INLINE_SHOW'), []);
+});
+
 test('shortcut reads the selected frame and translates in the existing inline card', async () => {
   const settings = { apiKey: 'shortcut-private-key' };
   const { api, calls, listeners } = fakeChrome({
@@ -506,7 +563,7 @@ test('shortcut reads the selected frame and translates in the existing inline ca
   assert.deepEqual(calls.injections[0].target, { tabId: 17, allFrames: true });
   assert.equal(typeof calls.injections[0].func, 'function');
   assert.deepEqual(calls.injections[1], {
-    target: { tabId: 17, frameIds: [3] }, files: ['content-script.js'],
+    target: { tabId: 17, documentIds: ['doc-17-3'] }, files: ['content-script.js'],
   });
   const [show] = messages(calls, 'TRANSMATE_INLINE_SHOW');
   const [result] = messages(calls, 'TRANSMATE_INLINE_RESULT');

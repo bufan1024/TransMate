@@ -14,6 +14,8 @@
 
 `registerBackground` 注册同名的 `translate-selection` 右键和命令入口。右键直接使用 `info.selectionText` 和 `info.frameId`，快捷键用 `chrome.scripting.executeScript` 检查有焦点的 frame，读取普通页面选区或输入框选区，并排除密码框。普通网页没有有效选文时显示提示。快捷键在受限页面或无法读取选区时打开侧栏供手动输入。右键已有选文时，可以将文字交给侧栏继续处理。
 
+划词图标默认关闭。用户开启并授予 HTTP 和 HTTPS 网页访问权限后，扩展动态注册 `selection-launcher.js`。脚本在网页内读取选区和定位，点击才通过 `TRANSMATE_SELECTION_LAUNCHER_START` 向后台提交选文。后台复核偏好、授权和发送文档，再沿用选文翻译流程。关闭开关后注销脚本并隐藏已打开网页的图标。
+
 后台优先把浮层注入选区所在 frame，子 frame 注入失败时尝试顶层。卡片在 Shadow DOM 内渲染，根据选区和视口定位，并处理主题、键盘焦点、原文展开、复制和重试。请求正常启动前，后台会等待浮层返回 `{ ok: true }`。
 
 | 方向 | 消息类型（共同前缀 `TRANSMATE_INLINE_`） |
@@ -32,6 +34,7 @@
 | `chrome.storage.local` | `serviceProfiles` | 已命名的本机 AI 配置与当前配置 ID，含各自的 API Key，仅可信扩展上下文可读 |
 | `chrome.storage.local` | `settings` | 当前服务配置，含 API Key。与 `serviceProfiles` 同次写入，供现有翻译入口读取 |
 | `chrome.storage.local` | `translationGlossary` | 独立保存本机固定译法与启用状态。使用同一设置锁写入，仅把目标语言和当前请求正文匹配的词对加入翻译提示 |
+| `chrome.storage.local` | `selectionLauncherEnabled` | 记录是否显示划词图标。还需 Chrome 网站访问权限 |
 | `chrome.storage.local` | `pageTranslationSites` | 已授权的自动翻译站点偏好，保存协议、主机和端口 |
 | `chrome.storage.local` | `translationHistory` | 用户启用后保存最多 100 条已完成的选文及手动翻译，独立加锁写入 |
 | `chrome.storage.session` | `inlineSelection:<tabId>:<requestId>` | 暂存浮层原文与来源信息，使 Worker 休眠后仍能重试。新浮层、关闭和页面离开时清理相关记录 |

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import * as profiles from '../lib/settings-management.js';
+import { SELECTION_LAUNCHER_KEY, SELECTION_LAUNCHER_ORIGINS } from '../lib/selection-launcher-settings.js';
 
 const original = {
   provider: 'custom',
@@ -304,4 +305,17 @@ test('service cleanup keeps site grants that share the configured provider host'
   await profiles.resetServiceProfiles(env);
   assert.deepEqual([...env.origins], [oldOrigin]);
   assert.deepEqual(env.store, { pageTranslationSites: ['https://old.example:8443'] });
+});
+
+test('service reset preserves launcher access and site access that depends on a wildcard grant', async () => {
+  const env = fixture(original, [oldOrigin, ...SELECTION_LAUNCHER_ORIGINS]);
+  env.store[SELECTION_LAUNCHER_KEY] = true;
+  env.store.pageTranslationSites = ['https://site.example'];
+  assert.deepEqual(await profiles.resetServiceProfiles(env), { cleanupFailed: false });
+  assert.equal(env.store.settings, undefined);
+  assert.deepEqual([...env.origins], SELECTION_LAUNCHER_ORIGINS);
+
+  env.store[SELECTION_LAUNCHER_KEY] = false;
+  await profiles.resetServiceProfiles(env);
+  assert.deepEqual([...env.origins], ['https://*/*']);
 });

@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="./options.css" />
     <script type="module" src="./options.js"></script>
     <script type="module" src="./site-options.js"></script>
+    <script type="module" src="./selection-launcher-options.js"></script>
   </head>
   <body>
     <div class="page-shell">
@@ -101,6 +102,14 @@
               <p class="permission-help" data-i18n="revokeHelp">撤销域名授权会影响使用该域名的服务和站点自动翻译。重新切换配置、保存或测试连接时可以再次授权。</p>
             </section>
           </form>
+          <section class="management-section" aria-labelledby="selection-launcher-heading">
+            <div class="management-heading">
+              <h3 id="selection-launcher-heading" data-i18n="selectionLauncherTitle">划词翻译图标</h3>
+              <p id="selection-launcher-help" data-i18n="selectionLauncherHelp">启用后，Chrome 会请求访问普通 HTTP 和 HTTPS 网页的权限，用于在选区旁显示图标。点击图标后才会把选中的文字发送给当前 AI 服务。</p>
+            </div>
+            <label class="option-toggle"><input id="selection-launcher-enabled" type="checkbox" aria-describedby="selection-launcher-help" disabled /> <span data-i18n="selectionLauncherEnable">显示划词翻译图标</span></label>
+            <div id="selection-launcher-status" class="form-status" role="status" aria-live="polite" hidden></div>
+          </section>
           <section id="site-translation" class="management-section" aria-labelledby="site-translation-heading">
             <div class="management-heading">
               <h3 id="site-translation-heading" data-i18n="siteTranslationTitle">站点自动翻译</h3>
@@ -121,7 +130,7 @@
               <h3 id="glossary-heading" data-i18n="glossaryTitle">术语库</h3>
               <p data-i18n="glossaryNote">在本机保存固定译法。启用后，只向 AI 服务发送当前翻译匹配的术语。</p>
             </div>
-            <label class="glossary-toggle"><input id="glossary-enabled" type="checkbox" /> <span data-i18n="glossaryEnable">启用术语库</span></label>
+            <label class="option-toggle"><input id="glossary-enabled" type="checkbox" /> <span data-i18n="glossaryEnable">启用术语库</span></label>
             <div class="field-row">
               <div class="field"><label for="glossary-source" data-i18n="glossarySource">原文术语</label><input id="glossary-source" type="text" maxlength="80" autocomplete="off" /></div>
               <div class="field"><label for="glossary-target" data-i18n="glossaryTarget">固定译法</label><input id="glossary-target" type="text" maxlength="120" autocomplete="off" /></div>

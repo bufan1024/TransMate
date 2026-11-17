@@ -50,8 +50,8 @@ html[lang="en"] [data-i18n="heroSecondStrong"]{margin-inline-start:.23em}.story-
 @media(max-width:420px){.topline-indicator{display:none}.provider-grid{gap:6px}.provider-option{padding:9px}.form-actions{display:grid;grid-template-columns:1fr 1fr}.save-button{min-width:0;gap:6px}.test-button{padding:0 8px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 
-.glossary-toggle { display: flex; align-items: center; gap: 7px; margin: 13px 0; font-size: 12px; }
-.glossary-toggle input { accent-color: var(--accent-dark); }
+.option-toggle { display: flex; align-items: center; gap: 7px; margin: 13px 0; font-size: 12px; }
+.option-toggle input { accent-color: var(--accent-dark); }
 #glossary-list li > div:first-child { min-width: 0; }
 #glossary-list li small { display: block; margin-top: 3px; color: var(--muted); }
 .glossary-row-actions { display: flex; flex: none; gap: 6px; }
