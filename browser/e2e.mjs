@@ -744,8 +744,36 @@ try {
   assert.deepEqual(requestedTargets(selectedText), [saved.targetLanguage, 'ja', 'ja']);
   assert.equal(await options.evaluate(async () => (await chrome.storage.local.get('settings')).settings.targetLanguage),
     saved.targetLanguage, '卡片临时语言不得修改默认设置');
-  await inlineHost.getByRole('button', { name: '关闭翻译' }).click();
+
+  const openPanelButton = inlineHost.getByRole('button', { name: '在侧栏打开' });
+  await openPanelButton.evaluate((button) => button.click());
+  assert.equal(await worker.evaluate(() => globalThis.__transmateTestSidePanelOpens), 0,
+    '网页脚本合成点击不得打开侧栏');
+  await worker.evaluate(() => {
+    globalThis.__transmateTestRouter.activeByTab.clear();
+    const open = chrome.sidePanel.open;
+    chrome.sidePanel.open = (details) => {
+      chrome.sidePanel.open = open;
+      open(details);
+      return new Promise((resolve) => { globalThis.__releaseCardPanelOpen = resolve; });
+    };
+  });
+  await openPanelButton.click();
+  await waitUntil(async () => await worker.evaluate(() => globalThis.__transmateTestSidePanelOpens) === 1,
+    '手动点击应打开侧栏');
+  await inlinePage.evaluate(() => window.dispatchEvent(new Event('blur')));
+  assert.equal(await inlineHost.count(), 1, '打开侧栏造成的失焦不得提前清空待交接译文');
+  await worker.evaluate(() => globalThis.__releaseCardPanelOpen());
+  await waitUntil(async () => await panelResult.textContent() === inlineSwitchResponse.translation,
+    '侧栏应收到已有的日语译文');
+  assert.equal(await panelSource.inputValue(), selectedText);
+  assert.equal(await panelTarget.inputValue(), 'ja');
+  assert.deepEqual(requestedTargets(selectedText), [saved.targetLanguage, 'ja', 'ja'],
+    '交接原文和已有译文不得再次调用服务');
+  assert.equal(await panel.locator('#copy-button').isEnabled(), true);
   await inlineHost.waitFor({ state: 'detached' });
+  assert.equal(await worker.evaluate(async () => Object.keys(await chrome.storage.session.get(null))
+    .some((key) => key.startsWith('pendingSelection:'))), false, '侧栏消费后应清除一次性交接记录');
 
   selectedText = await selectFixtureText(inlinePage, 'inline-stream-text');
   await triggerContextMenu(worker, inlineTabId, 'translate-selection', selectedText);
@@ -958,6 +986,7 @@ try {
     '侧栏内总结不需要再次打开侧栏');
 
   const summaryRequestCount = requests.length;
+  const opensBeforeSummary = await worker.evaluate(() => globalThis.__transmateTestSidePanelOpens);
   await triggerContextMenu(worker, articleTab.id, 'summarize-page');
   await waitUntil(async () => requests.length > summaryRequestCount
     && await panel.locator('#page-summary-text').isVisible()
@@ -965,7 +994,7 @@ try {
   '页面总结出现在发起操作的窗口');
   assert.equal(await secondPanel.locator('#page-summary').isVisible(), false,
     '页面总结不得显示在另一个窗口');
-  assert.equal(await worker.evaluate(() => globalThis.__transmateTestSidePanelOpens), 1,
+  assert.equal(await worker.evaluate(() => globalThis.__transmateTestSidePanelOpens), opensBeforeSummary + 1,
     '总结入口应打开侧栏');
   assert.deepEqual(
     requestedPageText(summaryRequestCount),
@@ -983,7 +1012,7 @@ try {
   '快捷键应在当前窗口侧栏显示网页重点');
   assert.equal(await secondPanel.locator('#page-summary').isVisible(), false,
     '快捷键总结不得显示在另一个窗口');
-  assert.equal(await worker.evaluate(() => globalThis.__transmateTestSidePanelOpens), 2,
+  assert.equal(await worker.evaluate(() => globalThis.__transmateTestSidePanelOpens), opensBeforeSummary + 2,
     '快捷键总结应打开侧栏');
 
   const removePageTranslation = pageStatus.getByRole('button', { name: '移除译文' });

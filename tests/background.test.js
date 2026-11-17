@@ -828,6 +828,77 @@ test('temporary inline language survives worker restart and retry and resets wit
   assert.doesNotMatch(JSON.stringify(sessionState), /unchanged-test-key/);
 });
 
+test('card handoff opens in the gesture and recovers only the clicked document after worker restart', async () => {
+  const { api, calls, listeners, sessionState } = fakeChrome({
+    settings: { targetLanguage: 'ja', apiKey: 'private-key' },
+  });
+  let translations = 0;
+  const translateImpl = async () => { translations += 1; return '雨は止んだ。'; };
+  const router = registerBackground(api, { translateImpl });
+  await router.onClicked(selected('The rain stopped.', 2), tab());
+  const requestId = router.activeByTab.get(17).requestId;
+  registerBackground(api, { translateImpl });
+
+  const sendMessage = api.tabs.sendMessage;
+  api.tabs.sendMessage = async (...args) => {
+    await sendMessage(...args);
+    if (args[1].type === 'TRANSMATE_INLINE_EXPORT_RESULT') {
+      return { translation: '雨は止んだ。', targetLanguageId: 'ja' };
+    }
+    return { ok: true };
+  };
+  const completed = deferred();
+  const request = { type: 'TRANSMATE_INLINE_OPEN_PANEL', requestId };
+  const source = { ...sender(17, 2), tab: tab() };
+
+  assert.equal(listeners.message(request, source, completed.resolve), true);
+  assert.deepEqual(calls.opens, [{ windowId: 7 }], 'the panel opens before async recovery');
+  assert.deepEqual(await completed.promise, { ok: true });
+  const [exported] = messages(calls, 'TRANSMATE_INLINE_EXPORT_RESULT');
+  assert.deepEqual(exported, {
+    tabId: 17, options: { documentId: 'doc-17-2' },
+    message: { type: 'TRANSMATE_INLINE_EXPORT_RESULT', requestId },
+  });
+  const [[key, value]] = Object.entries(sessionState).filter(([name]) => name.startsWith('pendingSelection:7:'));
+  assert.equal(key, selectionStorageKey(7, value.id));
+  assert.equal(value.text, 'The rain stopped.');
+  assert.equal(value.tabId, 17);
+  assert.deepEqual(value.result, { translation: '雨は止んだ。', targetLanguageId: 'ja', targetLanguage: '日语' });
+  assert.equal(translations, 1);
+  assert.equal(JSON.stringify(value).includes('private-key'), false);
+});
+
+test('card handoff rejects wrong senders and drops a result exported after navigation', async () => {
+  const { api, calls, listeners, sessionState } = fakeChrome();
+  const router = registerBackground(api, { translateImpl: async () => '旧译文' });
+  await router.onClicked(selected('Previous document', 2), tab());
+  const requestId = router.activeByTab.get(17).requestId;
+  const request = { type: 'TRANSMATE_INLINE_OPEN_PANEL', requestId };
+  const source = { ...sender(17, 2), tab: tab() };
+  assert.deepEqual(await router.onMessage(request, { ...source, documentId: 'another-document' }), { ok: false });
+  assert.deepEqual(await router.onMessage(request, { ...source, id: 'another-extension' }), { ok: false });
+  assert.deepEqual(await router.onMessage(request, { ...source, tab: tab(17, 8) }), { ok: false });
+  assert.equal(calls.opens.length, 0);
+
+  const exported = deferred();
+  let exportRequested = false;
+  const sendMessage = api.tabs.sendMessage;
+  api.tabs.sendMessage = (tabId, message, options) => {
+    if (message.type === 'TRANSMATE_INLINE_EXPORT_RESULT') {
+      exportRequested = true;
+      return exported.promise;
+    }
+    return sendMessage(tabId, message, options);
+  };
+  const operation = router.onMessage(request, source);
+  assert.deepEqual(calls.opens, [{ windowId: 7 }]);
+  await waitFor(() => exportRequested);
+  listeners.updated(17, { status: 'loading' });
+  exported.resolve({ translation: '旧译文', targetLanguageId: 'zh-CN' });
+  assert.deepEqual(await operation, { ok: false });
+  assert.equal(Object.keys(sessionState).some((key) => key.startsWith('pendingSelection:')), false);
+});
+
 test('a new selection after worker restart removes the old session selection', async () => {
   const { api, sessionState } = fakeChrome();
   const firstWorker = registerBackground(api, { translateImpl: async () => 'First result' });
