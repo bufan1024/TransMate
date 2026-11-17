@@ -7,6 +7,7 @@
   const MAX_BLOCKS = 300;
   const MAX_BLOCKS_PER_VIEW = 12;
   const SCROLL_DEBOUNCE_MS = 120;
+  const MUTATION_INTERVAL_MS = 180;
   const MIN_SCROLL_DISTANCE = 4;
   const PREFETCH_VIEWPORT_FRACTION = 0.5;
   const STATUS_ID = 'transmate-page-status';
@@ -64,7 +65,7 @@
     return anchor.parentElement.closest('a[href]') || anchor;
   }
 
-  function extract(root) {
+  function extract(root, { blockLimit = MAX_BLOCKS, characterLimit = MAX_CHARACTERS, knownNodes } = {}) {
     const blocks = [];
     const anchors = new Map();
     let length = 0;
@@ -80,8 +81,9 @@
       const lastTextNode = run.lastTextNode;
       run.firstTextNode = null;
       run.lastTextNode = null;
-      const remaining = MAX_CHARACTERS - length;
-      if (blocks.length >= MAX_BLOCKS || !remaining) {
+      if (knownNodes?.has(firstTextNode)) return;
+      const remaining = characterLimit - length;
+      if (blocks.length >= blockLimit || !remaining) {
         truncated = true;
         return;
       }
@@ -93,7 +95,7 @@
       }
       if (!included) return;
       blocks.push({ id, text: included });
-      anchors.set(id, { after, parent: after.parentNode, firstTextNode, lastTextNode });
+      anchors.set(id, { after, parent: after.parentNode, container: run.container, firstTextNode, lastTextNode });
       length += included.length;
     }
 
@@ -136,7 +138,7 @@
     return { blocks, anchors, truncated };
   }
 
-  function extractPage() {
+  function preferredRoot() {
     const main = Array.from(document.querySelectorAll('main, [role="main"]')).find(readableLandmark);
     let root = main;
     if (!root) {
@@ -144,9 +146,20 @@
         .filter((article) => !article.parentElement.closest('article, [role="article"]') && readableLandmark(article));
       if (articles.length === 1) [root] = articles;
     }
-    const body = document.body && readableStyle(document.body) ? document.body : null;
-    const result = extract(root || body);
-    return root && !result.blocks.length ? extract(body) : result;
+    return root;
+  }
+
+  function readableBody() {
+    return document.body && readableStyle(document.body) ? document.body : null;
+  }
+
+  function extractPage() {
+    const preferred = preferredRoot();
+    const root = preferred || readableBody();
+    const result = extract(root);
+    if (!preferred || result.blocks.length) return { ...result, root };
+    const body = readableBody();
+    return { ...extract(body), root: body };
   }
 
   function scrollPosition(element) {
@@ -181,9 +194,13 @@
     range.setEndAfter(lastTextNode);
   }
 
+  function sourceAttached({ firstTextNode, lastTextNode, after, parent, container }) {
+    return container.isConnected && container.contains(firstTextNode) && container.contains(lastTextNode)
+      && after.parentNode === parent;
+  }
+
   function sourceMatches(range, anchor) {
-    if (!anchor.firstTextNode.isConnected || !anchor.lastTextNode.isConnected
-        || anchor.after.parentNode !== anchor.parent) return false;
+    if (!sourceAttached(anchor)) return false;
     selectSource(range, anchor);
     return range.toString() === anchor.originalText;
   }
@@ -199,7 +216,7 @@
       if (entry.inserted.has(id)) continue;
       const anchor = entry.anchors.get(id);
       const { firstTextNode, lastTextNode } = anchor;
-      if (!firstTextNode.isConnected || !lastTextNode.isConnected) continue;
+      if (!sourceAttached(anchor)) continue;
       const bounds = viewportFor(firstTextNode.parentElement, view, boundsByElement, positions);
       if (bounds.left >= bounds.right || bounds.top >= bounds.bottom) continue;
       selectSource(range, anchor);
@@ -235,10 +252,90 @@
     document.addEventListener('scroll', entry.onScroll, { capture: true, passive: true });
   }
 
+  function readBlocks(entry, { blocks, anchors, truncated }) {
+    const range = document.createRange();
+    for (const block of blocks) {
+      const anchor = anchors.get(block.id);
+      selectSource(range, anchor);
+      anchor.originalText = range.toString();
+      const id = entry.blocks.length + 1;
+      entry.blocks.push({ id, text: block.text });
+      entry.anchors.set(id, anchor);
+      entry.knownNodes.add(anchor.firstTextNode);
+      entry.characters += block.text.length;
+    }
+    entry.truncated ||= truncated;
+  }
+
+  function attachedBlocks(entry) {
+    return entry.blocks.filter(({ id }) => sourceAttached(entry.anchors.get(id)));
+  }
+
+  function completedBlocks(entry, active = attachedBlocks(entry)) {
+    return active.filter(({ id }) => entry.inserted.get(id)?.isConnected).length;
+  }
+
+  function discoverBlocks(entry) {
+    const count = entry.blocks.length;
+    const truncated = entry.truncated;
+    if (!entry.root?.isConnected) entry.root = preferredRoot() || readableBody();
+    if (!entry.truncated && entry.root && readableLandmark(entry.root)) {
+      readBlocks(entry, extract(entry.root, {
+        blockLimit: MAX_BLOCKS - count,
+        characterLimit: MAX_CHARACTERS - entry.characters,
+        knownNodes: entry.knownNodes,
+      }));
+    }
+
+    let removed = false;
+    for (const [id, node] of entry.inserted) {
+      if (node.isConnected && !sourceAttached(entry.anchors.get(id))) {
+        node.remove();
+        removed = true;
+      }
+    }
+    const activeCount = attachedBlocks(entry).length;
+    const changed = activeCount !== entry.activeCount;
+    entry.activeCount = activeCount;
+    return changed || removed || count !== entry.blocks.length || truncated !== entry.truncated;
+  }
+
+  function relevantMutation(entry, record) {
+    if (!entry.root?.isConnected) return true;
+    if (!entry.root.contains(record.target)) return false;
+    if (record.type === 'attributes') return !record.target.parentElement?.closest(EXCLUDED);
+    if (record.target.closest?.(EXCLUDED)) return false;
+    return [...record.addedNodes, ...record.removedNodes].some((node) => (
+      node.nodeType === Node.TEXT_NODE ? Boolean(node.data.trim())
+        : node.nodeType === Node.ELEMENT_NODE && !node.matches(EXCLUDED)
+    ));
+  }
+
+  function observePage(entry) {
+    observeScroll(entry);
+    if (entry.mutationObserver) return;
+    entry.mutationObserver = new MutationObserver((records) => {
+      if (entry.mutationTimer !== undefined || !records.some((record) => relevantMutation(entry, record))) return;
+      entry.mutationTimer = setTimeout(() => {
+        entry.mutationTimer = undefined;
+        if (session !== entry) return;
+        const discovered = discoverBlocks(entry);
+        if (captureDemand(entry) || discovered) void sendPageEvent('TRANSMATE_PAGE_MORE', entry.requestId);
+      }, MUTATION_INTERVAL_MS);
+    });
+    entry.mutationObserver.observe(document, {
+      childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'aria-hidden', 'inert', 'open'],
+    });
+  }
+
   function stopObserving(entry) {
     if (entry.onScroll) document.removeEventListener('scroll', entry.onScroll, true);
     entry.onScroll = null;
     clearTimeout(entry.scrollTimer);
+    entry.mutationObserver?.disconnect();
+    entry.mutationObserver = null;
+    clearTimeout(entry.mutationTimer);
+    entry.mutationTimer = undefined;
   }
 
   function clearSession() {
@@ -269,33 +366,46 @@
       return { ok: false, error: '此页面操作已结束。' };
     }
     if (mode !== 'summary') clearSession();
-    const { blocks, anchors, truncated } = extractPage();
-    if (!blocks.length) return { ok: false, error: '此页面没有可处理的正文。请在有正文的网页上重试。' };
-    if (mode === 'summary') return { ok: true, blocks, truncated };
-    const range = document.createRange();
-    for (const anchor of anchors.values()) {
-      selectSource(range, anchor);
-      anchor.originalText = range.toString();
-    }
+    const page = extractPage();
+    if (!page.blocks.length) return { ok: false, error: '此页面没有可处理的正文。请在有正文的网页上重试。' };
+    if (mode === 'summary') return { ok: true, blocks: page.blocks, truncated: page.truncated };
     session = {
-      requestId, blocks, anchors, truncated, demand: new Set(), lastBatch: new Set(),
-      inserted: new Map(), renderedByAnchor: new Map(),
+      requestId, root: page.root, blocks: [], anchors: new Map(), knownNodes: new WeakSet(),
+      characters: 0, truncated: false, demand: new Set(), lastBatch: new Set(),
+      inserted: new Map(), renderedByAnchor: new Map(), translationsByText: new Map(),
     };
+    readBlocks(session, page);
+    session.activeCount = session.blocks.length;
     captureDemand(session);
-    observeScroll(session);
-    return { ok: true, total: blocks.length, completed: 0, truncated };
+    observePage(session);
+    return { ok: true, total: session.blocks.length, completed: 0, truncated: session.truncated };
   }
 
   function next({ requestId, retry }) {
     if (!session || session.requestId !== requestId) return { ok: false, error: '此页面翻译已结束。' };
-    const { blocks, anchors, demand, lastBatch, inserted, truncated } = session;
+    if (retry) {
+      discoverBlocks(session);
+      captureDemand(session);
+    }
+    const { anchors, demand, lastBatch, inserted, truncated } = session;
+    const active = attachedBlocks(session);
     const requestedIds = retry ? lastBatch : demand;
-    const requested = blocks.filter(({ id }) => requestedIds.has(id) && !inserted.has(id)).slice(0, MAX_BLOCKS_PER_VIEW);
+    const requested = active.filter(({ id }) => requestedIds.has(id) && !inserted.has(id)).slice(0, MAX_BLOCKS_PER_VIEW);
     const range = document.createRange();
     if (requested.some(({ id }) => !sourceMatches(range, anchors.get(id)))) return { ok: false, error: PAGE_CHANGED };
-    if (retry) captureDemand(session);
-    session.lastBatch = new Set(requested.map(({ id }) => id));
-    return { ok: true, blocks: requested, total: blocks.length, completed: inserted.size, truncated };
+    const pending = new Map();
+    for (const { id, text } of requested) {
+      if (session.translationsByText.has(text)) {
+        pending.set(id, { target: anchors.get(id), text: session.translationsByText.get(text) });
+      }
+    }
+    renderTranslations(session, pending);
+    const blocks = requested.filter(({ id }) => !pending.has(id));
+    session.lastBatch = new Set(blocks.map(({ id }) => id));
+    return {
+      ok: true, blocks, total: active.length, completed: completedBlocks(session, active), truncated,
+      hasMore: pending.size === MAX_BLOCKS_PER_VIEW,
+    };
   }
 
   function append({ requestId, translations }) {
@@ -310,10 +420,16 @@
       if (!target || typeof entry.text !== 'string' || !entry.text.trim()) {
         return { ok: false, error: '译文与网页段落不匹配，请重新翻译。' };
       }
+      if (!sourceAttached(target)) continue;
       if (!sourceMatches(range, target)) return { ok: false, error: PAGE_CHANGED };
       pending.set(entry.id, { target, text: entry.text });
     }
 
+    renderTranslations(session, pending);
+    return { ok: true, completed: completedBlocks(session) };
+  }
+
+  function renderTranslations(entry, pending) {
     for (const [id, { target, text }] of pending) {
       const node = document.createElement('span');
       node.setAttribute(TRANSLATION_ATTRIBUTE, String(id));
@@ -322,21 +438,21 @@
         border-inline-start: 2px solid #c45632; padding-inline-start: .65em;
         font-size: 1em; font-weight: normal; white-space: pre-wrap; overflow-wrap: anywhere;`;
       node.textContent = text;
-      const rendered = session.renderedByAnchor.get(target.after) || [];
+      const rendered = entry.renderedByAnchor.get(target.after) || [];
       const previous = rendered.findLast((item) => item.id < id && item.node.parentNode === target.parent);
       (previous?.node || target.after).after(node);
       rendered.push({ id, node });
       rendered.sort((first, second) => first.id - second.id);
-      session.renderedByAnchor.set(target.after, rendered);
-      session.inserted.set(id, node);
+      entry.renderedByAnchor.set(target.after, rendered);
+      entry.inserted.set(id, node);
+      entry.translationsByText.set(entry.blocks[id - 1].text, text);
     }
     if (pending.size) {
       // Adding a translation can shift the browser's scroll anchor. Refresh the
       // positions after layout without collecting another set of blocks.
       document.documentElement.getBoundingClientRect();
-      for (const element of session.scrollPositions.keys()) session.scrollPositions.set(element, scrollPosition(element));
+      for (const element of entry.scrollPositions.keys()) entry.scrollPositions.set(element, scrollPosition(element));
     }
-    return { ok: true, completed: session.inserted.size };
   }
 
   function showStatus({ requestId, status: kind, message }) {
@@ -346,8 +462,8 @@
       return { ok: false };
     }
     if (session?.requestId === requestId) {
-      if (kind === 'success' || kind === 'error' || kind === 'retryable') stopObserving(session);
-      else if (kind === 'translating' || kind === 'paused') observeScroll(session);
+      if (kind === 'error' || kind === 'retryable') stopObserving(session);
+      else if (kind === 'translating' || kind === 'paused' || kind === 'success') observePage(session);
     }
     if (status?.requestId !== requestId || !status.host.isConnected) {
       status?.host.remove();
