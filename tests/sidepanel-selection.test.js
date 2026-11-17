@@ -32,11 +32,13 @@ function fakeElement() {
 }
 
 async function mountPanel({ windowId = 7, store = new Map(), delayedSnapshot = false,
-  delayedWindow = false, snapshotOverride = null, delayedRemovalKey = null } = {}) {
+  delayedWindow = false, snapshotOverride = null, delayedRemovalKey = null,
+  initialSettings = settings } = {}) {
   const previous = { document: globalThis.document, chrome: globalThis.chrome, fetch: globalThis.fetch };
   const elements = new Map();
   const requests = [];
   const removed = [];
+  let savedSettings = initialSettings;
   let onChanged;
   let releaseSnapshot;
   let releaseWindow;
@@ -57,7 +59,7 @@ async function mountPanel({ windowId = 7, store = new Map(), delayedSnapshot = f
         : { id: windowId },
     },
     storage: {
-      local: { setAccessLevel: async () => {}, get: async () => ({ settings }) },
+      local: { setAccessLevel: async () => {}, get: async () => ({ settings: savedSettings }) },
       session: {
         get: async () => {
           const snapshot = snapshotOverride ?? Object.fromEntries(store);
@@ -94,6 +96,10 @@ async function mountPanel({ windowId = 7, store = new Map(), delayedSnapshot = f
       store.set(key, value);
       onChanged({ [key]: { newValue: value } }, 'session');
       return key;
+    },
+    saveSettings(nextSettings) {
+      savedSettings = nextSettings;
+      onChanged({ settings: { newValue: nextSettings } }, 'local');
     },
     releaseSnapshot() { releaseSnapshot?.(); },
     releaseWindow() { releaseWindow?.(); },
@@ -212,6 +218,57 @@ test('waiting for selection consumption cannot start a duplicate manual request'
     await app.flush();
     assert.deepEqual(app.requests.map(({ text }) => text), ['Pending']);
   } finally {
+    app.restore();
+  }
+});
+
+test('the original text can be translated manually after the selection expires during initial setup', async (t) => {
+  let now = 1_800_000_000_000;
+  t.mock.method(Date, 'now', () => now);
+  const app = await mountPanel({ initialSettings: null });
+  try {
+    const key = app.emit(selection(7, 'setup', 'Selected before setup', 100));
+    assert.equal(app.element('#source-text').value, 'Selected before setup');
+    assert.equal(app.element('#translate-button').disabled, true);
+    assert.equal(app.requests.length, 0);
+
+    now += 30_001;
+    app.saveSettings(settings);
+    await app.flush();
+    assert.equal(app.store.has(key), false);
+    assert.equal(app.requests.length, 0);
+    assert.equal(app.element('#source-text').value, 'Selected before setup');
+    assert.equal(app.element('#translate-button').disabled, false);
+
+    app.element('#translate-button').dispatchEvent({ type: 'click' });
+    await app.flush();
+    assert.deepEqual(app.requests.map(({ text }) => text), ['Selected before setup']);
+    assert.equal(app.element('#result-text').textContent, '译:Selected before setup');
+  } finally {
+    app.restore();
+  }
+});
+
+test('a selection that expires while the stored event is removed requires a manual action', async (t) => {
+  let now = 1_800_000_000_000;
+  t.mock.method(Date, 'now', () => now);
+  const key = selectionStorageKey(7, 'pending');
+  const app = await mountPanel({ delayedRemovalKey: key });
+  try {
+    app.emit(selection(7, 'pending', 'Expired during removal', 100));
+    assert.equal(app.element('#translate-button').disabled, true);
+    assert.equal(app.requests.length, 0);
+
+    now += 30_001;
+    app.releaseRemoval();
+    await app.flush();
+    assert.equal(app.store.has(key), false);
+    assert.equal(app.requests.length, 0);
+    assert.equal(app.element('#source-text').value, 'Expired during removal');
+    assert.equal(app.element('#translate-button').disabled, false);
+  } finally {
+    app.releaseRemoval();
+    await app.flush();
     app.restore();
   }
 });
