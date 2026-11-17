@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { pdfSnippet, scannedPdf, textualPdf } from './fixtures/local-pdf.mjs';
 
 const extensionDir = fileURLToPath(new URL('../', import.meta.url));
 const chromiumExecutable = process.env.TRANSMATE_CHROMIUM_EXECUTABLE;
@@ -1042,6 +1043,52 @@ try {
   await articlePage.mouse.wheel(0, distanceToChanged);
   await pageStatus.getByText('网页正文已变动，请重新启动翻译。').waitFor({ timeout: 6000 });
   assert.equal(requests.length, beforeChangedViewport, '正文原位变动后不得发送已经过期的段落');
+
+  const startPdfRequests = requests.length;
+  const pdfNetwork = [];
+  const recordPdfRequest = (request) => {
+    if (!request.url().startsWith('chrome-extension://')) pdfNetwork.push(request.url());
+  };
+  context.on('request', recordPdfRequest);
+  await panel.locator('summary').filter({ hasText: '翻译本地 PDF' }).click();
+  const pdfFile = panel.locator('#pdf-file');
+  const pdfStatus = panel.locator('#pdf-status');
+  const pdfText = panel.locator('#pdf-text');
+  const usePdf = panel.locator('#pdf-use-selection');
+  await pdfFile.setInputFiles({ name: 'not-a-pdf.pdf', mimeType: 'application/pdf', buffer: Buffer.from('not a PDF') });
+  await pdfStatus.filter({ hasText: '此文件不是 PDF' }).waitFor();
+
+  await pdfFile.setInputFiles({ name: 'scan.pdf', mimeType: 'application/pdf', buffer: scannedPdf });
+  await pdfStatus.filter({ hasText: '扫描件需要 OCR' }).waitFor();
+  assert.equal(await usePdf.isVisible(), false, '扫描件不得提供空文本翻译');
+
+  await pdfFile.setInputFiles({ name: 'local.pdf', mimeType: 'application/pdf', buffer: textualPdf });
+  await pdfStatus.filter({ hasText: '第 1/2 页' }).waitFor({ timeout: 8000 });
+  assert.equal(await pdfText.inputValue(), 'Private first page');
+  await panel.locator('#pdf-page').selectOption('2');
+  assert.equal(await pdfText.inputValue(), pdfSnippet + '\nPrivate second page');
+  assert.equal(await usePdf.isDisabled(), true, '加载时需由用户选择要使用的文字');
+  await pdfText.evaluate((element, length) => {
+    element.focus();
+    element.setSelectionRange(0, length);
+  }, pdfSnippet.length);
+  await waitUntil(async () => await usePdf.isEnabled(), 'PDF 选区可送到翻译工作区');
+  await usePdf.click();
+  assert.equal(await panelSource.inputValue(), pdfSnippet);
+  assert.equal(requests.length, startPdfRequests, '读取及复制 PDF 选区都不能发出 AI 请求');
+  context.off('request', recordPdfRequest);
+  assert.deepEqual(pdfNetwork, [], '本地 PDF 解析只读取已打包资源');
+  assert.equal(await panel.evaluate(async () => JSON.stringify([
+    await chrome.storage.local.get(null), await chrome.storage.session.get(null),
+  ]).includes('Private second page')), false, 'PDF 原文只留在当前侧栏内存');
+
+  await panel.locator('#translate-button').click();
+  await panelResult.waitFor({ state: 'visible' });
+  assert.deepEqual(requests.slice(startPdfRequests).map(({ text }) => text), [pdfSnippet],
+    '用户确认后只可发送所选 PDF 文字');
+  await panel.locator('#pdf-close').click();
+  await pdfText.waitFor({ state: 'hidden' });
+  assert.equal(await pdfText.inputValue(), '', '关闭文档应清除 PDF 预览');
 
   console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、临时目标语言、停止翻译、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译和网页重点总结');
   console.log('Mock POST requests: ' + requests.map((item) => item.text).join(', '));

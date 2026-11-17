@@ -45,6 +45,23 @@
           </div>
         </section>
 
+        <details class="local-pdf">
+          <summary>翻译本地 PDF</summary>
+          <p class="pdf-help">先在本机读取文字。选中文本并点击「使用选中文本」后，可在下方确认翻译。PDF 扫描件需要 OCR。</p>
+          <label class="sr-only" for="pdf-file">选择本地 PDF</label>
+          <input id="pdf-file" type="file" accept=".pdf,application/pdf" />
+          <button class="secondary-button" id="pdf-close" type="button" hidden>关闭文档</button>
+          <p class="pdf-status" id="pdf-status" role="status" aria-live="polite"></p>
+          <div id="pdf-pages" hidden>
+            <label for="pdf-page">页码</label>
+            <select id="pdf-page"></select>
+            <label class="sr-only" for="pdf-text">本页提取的文字</label>
+            <textarea id="pdf-text" dir="auto" readonly rows="7"></textarea>
+            <p class="pdf-status" id="pdf-selection-hint" aria-live="polite" hidden></p>
+            <button class="secondary-button" id="pdf-use-selection" type="button" disabled>使用选中文本</button>
+          </div>
+        </details>
+
         <section class="translator-card" aria-label="翻译工作区">
           <div class="section-label"><span class="section-index">01</span><span>原文</span><span class="section-rule"></span><span id="source-count">0 字</span></div>
           <label class="sr-only" for="source-text">需要翻译的文字</label>

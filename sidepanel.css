@@ -96,3 +96,12 @@ footer{display:flex;align-items:center;gap:7px;margin-top:28px;padding-top:13px;
 @keyframes reveal{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:330px){.app-shell{padding-left:17px;padding-right:17px}.intro{padding-top:23px}.translator-card{padding:14px}.keyboard-hint{font-size:9px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+
+.local-pdf { margin: 0 0 14px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--paper-2); }
+.local-pdf summary { cursor: pointer; font-size: 12px; font-weight: 700; }
+.pdf-help, .pdf-status { margin: 8px 0; color: var(--muted); font-size: 11px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pdf-status:empty { display: none; }
+#pdf-file { width: 100%; max-width: 100%; font: inherit; font-size: 11px; }
+#pdf-pages { font-size: 12px; }
+#pdf-page { font: inherit; }
+#pdf-text { display: block; box-sizing: border-box; width: 100%; margin: 8px 0; padding: 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: var(--paper-2); resize: vertical; }

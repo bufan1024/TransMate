@@ -2,6 +2,7 @@ import { DEFAULT_SETTINGS, TARGET_LANGUAGES, validateSettings } from "./lib/conf
 import { createPageSummaryPanel } from "./lib/page-summary-panel.js";
 import { compareSelections, selectionStorageKey, selectionStoragePrefix, selectionWindowIdFromKey, shouldAcceptSelection } from "./lib/selection.js";
 import { translate } from "./lib/translator.js";
+import { createLocalPdfPanel } from "./lib/local-pdf-panel.js";
 
 const MAX_TEXT_LENGTH = 5000;
 const TRANSLATION_SETTING_KEYS = ["provider", "endpoint", "apiKey", "model", "targetLanguage", "prompt"];
@@ -377,6 +378,11 @@ for (const { id, name } of TARGET_LANGUAGES) {
   targetOptions.append(option);
 }
 
+createLocalPdfPanel(document, (snippet) => {
+  elements.input.value = snippet;
+  elements.input.dispatchEvent(new Event("input"));
+  elements.input.focus();
+});
 showResult("empty");
 updateControls();
 initialize();
