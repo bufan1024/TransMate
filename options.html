@@ -61,11 +61,33 @@
 
             <section class="management-section" aria-labelledby="management-heading">
               <div class="management-heading"><h3 id="management-heading">本机凭据与授权</h3><p>已保存的密钥不会回填。切换服务或接口后，请填写新密钥。</p></div>
-              <div class="management-actions"><button id="clear-saved-key" type="button">清除已保存密钥</button><button id="reset-settings" type="button">重置全部配置</button></div>
+              <div class="management-actions"><button id="clear-saved-key" type="button">清除已保存密钥</button><button id="reset-settings" type="button">重置服务配置</button></div>
               <h4>已授权的服务域名</h4>
               <ul id="permission-list" class="permission-list" aria-label="已授权域名"><li class="permission-empty">正在读取…</li></ul>
               <p class="permission-help">撤销当前服务的访问权限后，需重新保存或测试连接才能继续翻译。</p>
             </section>
+          </form>
+          <form id="glossary-form" class="management-section" aria-labelledby="glossary-heading" novalidate>
+            <div class="management-heading">
+              <h3 id="glossary-heading">术语库</h3>
+              <p>在本机保存固定译法。启用后，只向 AI 服务发送当前翻译匹配的术语。</p>
+            </div>
+            <label class="glossary-toggle"><input id="glossary-enabled" type="checkbox" /> 启用术语库</label>
+            <div class="field-row">
+              <div class="field"><label for="glossary-source">原文术语</label><input id="glossary-source" type="text" maxlength="80" autocomplete="off" /></div>
+              <div class="field"><label for="glossary-target">固定译法</label><input id="glossary-target" type="text" maxlength="120" autocomplete="off" /></div>
+            </div>
+            <div class="field"><label for="glossary-language">适用目标语言</label><select id="glossary-language"></select></div>
+            <div class="management-actions">
+              <button id="glossary-save" type="submit">添加术语</button>
+              <button id="glossary-cancel" type="button" hidden>取消编辑</button>
+              <button id="glossary-import" type="button">导入 JSON</button>
+              <button id="glossary-export" type="button">导出 JSON</button>
+              <button id="glossary-clear" type="button">清空术语库</button>
+              <input id="glossary-file" type="file" accept="application/json,.json" hidden />
+            </div>
+            <div id="glossary-status" class="form-status" role="status" aria-live="polite" hidden></div>
+            <ul id="glossary-list" class="permission-list" aria-label="已保存术语"></ul>
           </form>
           <footer>TRANSMATE <span>·</span> 让阅读继续</footer>
         </div>

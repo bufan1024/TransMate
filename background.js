@@ -2,6 +2,7 @@ import { selectionStorageKey, selectionWindowIdFromKey, shouldAcceptSelection } 
 import { createPageActions, PAGE_TRANSLATION_MENU, PAGE_SUMMARY_MENU } from './lib/page-actions.js';
 import { DEFAULT_SETTINGS, TARGET_LANGUAGES } from './lib/config.js';
 import { translate } from './lib/translator.js';
+import { GLOSSARY_STORAGE_KEY, glossaryAffectsTranslations } from './lib/glossary.js';
 
 const MENU_ID = 'translate-selection';
 const INLINE_TIMEOUT_MS = 25_000;
@@ -208,12 +209,14 @@ export function registerBackground(chromeApi, {
     }).catch(() => console.warn('无法清理过期选文'));
   }
 
-  async function readSettings(entry) {
-    const { settings } = await chromeApi.storage.local.get('settings');
+  async function readTranslationOptions(entry) {
+    const { settings, [GLOSSARY_STORAGE_KEY]: glossary } = await chromeApi.storage.local.get([
+      'settings', GLOSSARY_STORAGE_KEY,
+    ]);
     if (entry.targetLanguageOverride && settings && typeof settings === 'object' && !Array.isArray(settings)) {
-      return { ...settings, targetLanguage: entry.targetLanguageOverride };
+      return { settings: { ...settings, targetLanguage: entry.targetLanguageOverride }, glossary };
     }
-    return settings;
+    return { settings, glossary };
   }
 
   async function show(entry, settings, { retryOf, keyboard = false } = {}) {
@@ -232,7 +235,7 @@ export function registerBackground(chromeApi, {
     entry.shown = true;
   }
 
-  async function runTranslation(entry, settings) {
+  async function runTranslation(entry, { settings, glossary }) {
     if (!current(entry)) return;
     if (entry.configInvalidated) {
       try {
@@ -264,6 +267,7 @@ export function registerBackground(chromeApi, {
         translateImpl({
           text: entry.text,
           settings,
+          glossary,
           permissionsApi: chromeApi.permissions,
           signal: controller.signal,
           onDelta: async (delta) => {
@@ -341,9 +345,9 @@ export function registerBackground(chromeApi, {
         cancel(entry, { hide: true });
         return;
       }
-      const settings = notice ? undefined : await readSettings(entry);
+      const options = notice ? {} : await readTranslationOptions(entry);
       if (!current(entry) || !intentCurrent(tabId, order)) return;
-      await show(entry, settings, { keyboard });
+      await show(entry, options.settings, { keyboard });
       if (!current(entry) || !intentCurrent(tabId, order)) return;
       if (notice) {
         await send(entry, {
@@ -353,7 +357,7 @@ export function registerBackground(chromeApi, {
       }
       await persist(entry);
       if (!current(entry) || !intentCurrent(tabId, order)) return;
-      await runTranslation(entry, settings);
+      await runTranslation(entry, options);
     } catch {
       if (!current(entry)) return;
       cancel(entry, { hide: true });
@@ -459,15 +463,15 @@ export function registerBackground(chromeApi, {
     };
     activeByTab.set(entry.tabId, replacement);
     try {
-      const settings = await readSettings(replacement);
+      const options = await readTranslationOptions(replacement);
       if (!current(replacement)) return { ok: false };
-      await show(replacement, settings, { retryOf: entry.requestId });
+      await show(replacement, options.settings, { retryOf: entry.requestId });
       if (current(replacement)) await persist(replacement);
       if (!current(replacement)) {
         send(replacement, { type: 'TRANSMATE_INLINE_HIDE', requestId: replacement.requestId }).catch(() => {});
         return { ok: false };
       }
-      void runTranslation(replacement, settings);
+      void runTranslation(replacement, options);
       return { ok: true };
     } catch {
       if (current(replacement)) cancel(replacement, { hide: true });
@@ -551,7 +555,7 @@ export function registerBackground(chromeApi, {
   }
 
   chromeApi.storage.onChanged?.addListener((changes, area) => {
-    if (area !== 'local' || !changes.settings) return;
+    if (area !== 'local' || (!changes.settings && !glossaryAffectsTranslations(changes[GLOSSARY_STORAGE_KEY]))) return;
     pageActions.cancelAll();
     for (const entry of activeByTab.values()) invalidate(entry);
     // MV3 may have restarted the worker while a completed card remained open.

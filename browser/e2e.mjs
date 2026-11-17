@@ -164,7 +164,7 @@ const server = createServer(async (request, response) => {
   const instruction = body.messages.find((message) => message.role === 'system')?.content || '';
   const text = body.messages.find((message) => message.role === 'user')?.content;
   const target = instruction.match(/^Translate the user's text into (.+?)\. Preserve/)?.[1];
-  requests.push({ text, target, model: body.model, stream: body.stream });
+  requests.push({ text, target, instruction, model: body.model, stream: body.stream });
   response.setHeader('Content-Type', 'application/json');
 
   const pageTranslation = instruction.startsWith('Translate the following webpage text blocks into ');
@@ -1042,6 +1042,101 @@ try {
   await articlePage.mouse.wheel(0, distanceToChanged);
   await pageStatus.getByText('网页正文已变动，请重新启动翻译。').waitFor({ timeout: 6000 });
   assert.equal(requests.length, beforeChangedViewport, '正文原位变动后不得发送已经过期的段落');
+
+  const glossaryToggle = options.locator('#glossary-enabled');
+  const glossaryList = options.locator('#glossary-list');
+  const glossaryStatus = options.locator('#glossary-status');
+  await options.bringToFront();
+  assert.equal(await glossaryToggle.isChecked(), false);
+  await options.locator('#glossary-source').fill('north star');
+  await options.locator('#glossary-target').fill('北极星');
+  await options.locator('#glossary-save').click();
+  await glossaryList.getByText('north star → 北极星', { exact: true }).waitFor();
+  await glossaryList.getByRole('button', { name: '编辑 north star（简体中文）' }).click();
+  await options.locator('#glossary-target').fill('极星专名');
+  await options.locator('#glossary-save').click();
+  await glossaryList.getByText('north star → 极星专名', { exact: true }).waitFor();
+
+  const [download] = await Promise.all([
+    options.waitForEvent('download'), options.locator('#glossary-export').click(),
+  ]);
+  const file = JSON.parse(await readFile(await download.path(), 'utf8'));
+  assert.deepEqual(file, {
+    version: 1, entries: [{ source: 'north star', target: '极星专名', targetLanguage: 'zh-CN' }],
+  });
+  const glossaryFile = options.locator('#glossary-file');
+  await glossaryFile.setInputFiles({ name: 'invalid.json', mimeType: 'application/json', buffer: Buffer.from('{}') });
+  await waitUntil(async () => (await glossaryStatus.getAttribute('data-tone')) === 'error', '无效文件不替换术语');
+  assert.equal(await glossaryList.getByText('north star → 极星专名').count(), 1);
+
+  file.entries.push(
+    { source: 'world', target: '连通示例中的保留词', targetLanguage: 'zh-CN' },
+    { source: 'hello', target: '页面划词称呼', targetLanguage: 'zh-CN' },
+    { source: 'hello', target: '別の言語', targetLanguage: 'ja' },
+    { source: 'absent-private', target: '未匹配的本机术语', targetLanguage: 'zh-CN' },
+  );
+  options.once('dialog', (dialog) => dialog.accept());
+  await glossaryFile.setInputFiles({ name: 'terms.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(file)) });
+  await waitUntil(async () => await glossaryStatus.textContent() === '术语已导入。', '导入已确认的术语');
+  assert.equal(await glossaryToggle.isChecked(), false, '导入不得隐式启用术语库');
+
+  const beforeDisabledTerms = requests.length;
+  await panelSource.fill('The north star is visible.');
+  await panel.locator('#translate-button').click();
+  await panelResult.waitFor({ state: 'visible' });
+  assert.doesNotMatch(requests[beforeDisabledTerms].instruction, /translation_glossary/);
+
+  await glossaryToggle.check();
+  await waitUntil(async () => await glossaryStatus.textContent() === '已启用术语库。', '显式启用术语库');
+  const beforeConnection = requests.length;
+  await options.locator('#test-connection').click();
+  await waitUntil(async () => (await options.locator('#form-status').textContent()).includes('连接正常')
+    && requests.length > beforeConnection, '术语库开启时仍可检测连接');
+  assert.equal(requests[beforeConnection].text, 'Hello, world.');
+  assert.doesNotMatch(requests[beforeConnection].instruction, /translation_glossary/);
+
+  const beforePanelTerms = requests.length;
+  await panelSource.fill('Find the north star tonight.');
+  await panel.locator('#translate-button').click();
+  await panelResult.waitFor({ state: 'visible' });
+  assert.match(requests[beforePanelTerms].instruction, /极星专名/);
+  assert.doesNotMatch(requests[beforePanelTerms].instruction, /连通示例|未匹配的本机术语|別の言語/);
+
+  const beforeInlineTerms = requests.length;
+  await inlinePage.bringToFront();
+  selectedText = await selectFixtureText(inlinePage, 'inline-first');
+  await triggerContextMenu(worker, inlineTabId, 'translate-selection', selectedText);
+  await inlineHost.locator('.result').waitFor({ state: 'visible' });
+  assert.match(requests[beforeInlineTerms].instruction, /页面划词称呼/);
+  assert.doesNotMatch(requests[beforeInlineTerms].instruction, /未匹配的本机术语|別の言語/);
+  const exposed = await worker.evaluate(async (tabId) => {
+    const [injected] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: async () => {
+        try {
+          return Boolean((await chrome.storage.local.get('translationGlossary')).translationGlossary);
+        } catch {
+          return false;
+        }
+      },
+    });
+    return injected.result;
+  }, inlineTabId);
+  assert.equal(exposed, false, '网页内容脚本不得读取本机术语库');
+
+  await articlePage.goto(articleUrl);
+  await articlePage.bringToFront();
+  const beforePageTerms = requests.length;
+  await triggerContextMenu(worker, articleTab.id, 'translate-page');
+  await pageTranslations.filter({ hasText: articleTranslations[1] }).waitFor();
+  assert.match(requests[beforePageTerms].instruction, /极星专名/);
+  assert.doesNotMatch(requests[beforePageTerms].instruction, /未匹配的本机术语|页面划词称呼/);
+  const beforeSummaryTerms = requests.length;
+  await triggerContextMenu(worker, articleTab.id, 'summarize-page');
+  await waitUntil(() => requests.length > beforeSummaryTerms, '总结请求已发出');
+  assert.doesNotMatch(requests[beforeSummaryTerms].instruction, /translation_glossary/);
+  await glossaryList.getByRole('button', { name: '删除 north star（简体中文）' }).click();
+  await glossaryList.getByText('north star → 极星专名').waitFor({ state: 'detached' });
 
   console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、临时目标语言、停止翻译、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译和网页重点总结');
   console.log('Mock POST requests: ' + requests.map((item) => item.text).join(', '));

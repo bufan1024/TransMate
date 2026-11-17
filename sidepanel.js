@@ -2,6 +2,7 @@ import { DEFAULT_SETTINGS, TARGET_LANGUAGES, validateSettings } from "./lib/conf
 import { createPageSummaryPanel } from "./lib/page-summary-panel.js";
 import { compareSelections, selectionStorageKey, selectionStoragePrefix, selectionWindowIdFromKey, shouldAcceptSelection } from "./lib/selection.js";
 import { translate } from "./lib/translator.js";
+import { GLOSSARY_STORAGE_KEY, glossaryAffectsTranslations } from "./lib/glossary.js";
 
 const MAX_TEXT_LENGTH = 5000;
 const TRANSLATION_SETTING_KEYS = ["provider", "endpoint", "apiKey", "model", "targetLanguage", "prompt"];
@@ -29,6 +30,7 @@ const elements = {
 };
 
 let settings = { ...DEFAULT_SETTINGS };
+let glossary;
 let temporaryTarget = "";
 let pendingSelection = null;
 let handledSelectionId = null;
@@ -40,6 +42,7 @@ let translation = "";
 let requestNumber = 0;
 let currentWindowId = null;
 let settingsChangeVersion = 0;
+let glossaryChangeVersion = 0;
 const queuedSelections = new Map();
 const summaryPanel = createPageSummaryPanel(chrome, document, normalizedSettings);
 
@@ -160,6 +163,7 @@ async function runTranslation(text) {
     const result = await translate({
       text: trimmed,
       settings: config,
+      glossary,
       signal: controller.signal,
       onDelta: (delta) => {
         if (thisRequest !== requestNumber || controller.signal.aborted) return;
@@ -303,12 +307,21 @@ document.querySelector("#open-settings").addEventListener("click", openSettings)
 document.querySelector("#banner-settings").addEventListener("click", openSettings);
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes.settings) {
-    settingsChangeVersion += 1;
-    const nextSettings = { ...DEFAULT_SETTINGS, ...(changes.settings.newValue || {}) };
-    if (translationSettingsChanged(nextSettings, temporaryTarget)) invalidateTranslation();
-    if (translationSettingsChanged(nextSettings)) summaryPanel.reset();
-    settings = nextSettings;
+  if (area === "local" && (changes.settings || changes[GLOSSARY_STORAGE_KEY])) {
+    const nextGlossary = changes[GLOSSARY_STORAGE_KEY];
+    let invalidate = glossaryAffectsTranslations(nextGlossary);
+    if (changes.settings) {
+      settingsChangeVersion += 1;
+      const nextSettings = { ...DEFAULT_SETTINGS, ...(changes.settings.newValue || {}) };
+      invalidate ||= translationSettingsChanged(nextSettings, temporaryTarget);
+      if (translationSettingsChanged(nextSettings)) summaryPanel.reset();
+      settings = nextSettings;
+    }
+    if (nextGlossary) {
+      glossaryChangeVersion += 1;
+      glossary = nextGlossary.newValue;
+    }
+    if (invalidate) invalidateTranslation();
     updateControls();
     maybeTranslateSelection();
   }
@@ -324,6 +337,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 async function initialize() {
   const initialSettingsChangeVersion = settingsChangeVersion;
+  const initialGlossaryChangeVersion = glossaryChangeVersion;
   try {
     await chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
     try {
@@ -333,12 +347,13 @@ async function initialize() {
       // Selection cannot be routed safely; manual translation remains available.
     }
     const [storedSettings, session] = await Promise.all([
-      chrome.storage.local.get("settings"),
+      chrome.storage.local.get(["settings", GLOSSARY_STORAGE_KEY]),
       chrome.storage.session.get(null),
     ]);
     if (settingsChangeVersion === initialSettingsChangeVersion) {
       settings = { ...DEFAULT_SETTINGS, ...(storedSettings.settings || {}) };
     }
+    if (glossaryChangeVersion === initialGlossaryChangeVersion) glossary = storedSettings[GLOSSARY_STORAGE_KEY];
     updateControls();
     summaryPanel.initialize(currentWindowId, session);
     if (currentWindowId !== null) {

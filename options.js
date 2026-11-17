@@ -1,3 +1,4 @@
+import { createGlossaryEditor } from "./lib/glossary-options.js";
 import { DEFAULT_SETTINGS, PROVIDERS, originPatternForEndpoint } from "./lib/config.js";
 import { checkConnection } from "./lib/connection-check.js";
 import { SettingsOperationError, canReuseSavedKey, persistSettings, resolveSettings, revokeGrantedOrigin, saveSettingsWithPermission, withSettingsLock } from "./lib/settings-management.js";
@@ -16,6 +17,7 @@ const keyStatus = document.querySelector("#key-status");
 const clearKeyButton = document.querySelector("#clear-saved-key");
 const resetButton = document.querySelector("#reset-settings");
 const permissionList = document.querySelector("#permission-list");
+const glossaryEditor = createGlossaryEditor(document, chrome, globalThis.navigator?.locks);
 let previousProvider = DEFAULT_SETTINGS.provider;
 let activeConnectionCheck = null;
 let savedSettings = null;
@@ -353,7 +355,7 @@ clearKeyButton.addEventListener("click", async () => {
 });
 
 resetButton.addEventListener("click", async () => {
-  if (operationBusy || !window.confirm("确定重置全部配置、清除密钥并撤销已授权域名吗？")) return;
+  if (operationBusy || !window.confirm("确定重置服务配置、清除密钥并撤销已授权域名吗？")) return;
   cancelConnectionCheck();
   setBusy(true, "manage");
   try {
@@ -388,6 +390,7 @@ async function initialize() {
     await chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
     savedSettings = await readSavedSettings();
     fillForm({ ...DEFAULT_SETTINGS, ...(savedSettings || {}) });
+    await glossaryEditor.initialize();
   } catch {
     showStatus("无法读取本机设置，请重新打开设置页。", "error");
   }
