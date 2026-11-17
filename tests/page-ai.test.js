@@ -234,9 +234,11 @@ test('cancelling after the first translated batch prevents remaining requests', 
 test('page summary synthesizes the findings from both beginning and end of a long article', async () => {
   const first = 'Front '.repeat(660);
   const last = 'End '.repeat(990);
+  const progress = [];
   const result = await summarizePage({
     blocks: [{ id: 5, text: first }, { id: 6, text: last }],
     settings,
+    onProgress: (step) => progress.push(step),
     fetchImpl: mockService((blocks, prompt) => {
       if (prompt.startsWith('Combine ')) {
         assert.deepEqual(blocks.map(({ text }) => text), ['开头重点', '结尾重点']);
@@ -250,6 +252,11 @@ test('page summary synthesizes the findings from both beginning and end of a lon
     }),
   });
   assert.equal(result, '• 开头重点\n• 结尾重点');
+  assert.deepEqual(progress, [
+    { phase: 'extract', batch: 1, total: 2 },
+    { phase: 'extract', batch: 2, total: 2 },
+    { phase: 'combine', batch: 1, total: 1 },
+  ]);
 });
 
 test('page summary times out an unanswered service request', async () => {

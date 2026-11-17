@@ -33,14 +33,16 @@
           <button id="banner-settings" type="button">去设置 <span aria-hidden="true">↗</span></button>
         </div>
 
-        <section class="page-summary" id="page-summary" aria-labelledby="page-summary-title" hidden>
+        <section class="page-summary" id="page-summary" aria-labelledby="page-summary-title" aria-describedby="page-summary-source" hidden>
           <h2 id="page-summary-title">网页重点</h2>
+          <p class="page-summary-source" id="page-summary-source"></p>
           <div aria-live="polite">
             <p class="page-summary-status" id="page-summary-status"></p>
             <p class="result-text" id="page-summary-text" hidden></p>
           </div>
           <div class="result-actions">
             <button class="secondary-button" id="page-summary-cancel" type="button" hidden>取消总结</button>
+            <button class="secondary-button" id="page-summary-retry" type="button" hidden>重试总结</button>
             <button class="secondary-button" id="page-summary-copy" type="button" hidden>复制总结</button>
           </div>
         </section>

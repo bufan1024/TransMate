@@ -267,7 +267,11 @@
     if (mode !== 'summary') clearSession();
     const { blocks, anchors, truncated } = extractPage();
     if (!blocks.length) return { ok: false, error: '此页面没有可处理的正文。' };
-    if (mode === 'summary') return { ok: true, blocks, truncated };
+    if (mode === 'summary') {
+      return {
+        ok: true, blocks, truncated, title: document.title.trim().slice(0, 200), host: location.hostname,
+      };
+    }
     const range = document.createRange();
     for (const anchor of anchors.values()) {
       selectSource(range, anchor);

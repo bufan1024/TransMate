@@ -42,7 +42,7 @@
 
 `page-content.js` 在网页中保留正文和段落位置。双语翻译开始时，`TRANSMATE_PAGE_READ` 只返回计数。后台通过 `TRANSMATE_PAGE_NEXT` 读取初始视口和预读范围内的待翻译段落，范围翻完后等待页面滚动触发 `TRANSMATE_PAGE_MORE`。后台按标签页和文档标识确认归属，逐段发送 `TRANSMATE_PAGE_APPEND`。离开页面、取消或变更设置时，正在处理的请求会中止。
 
-网页总结使用 `TRANSMATE_PAGE_READ` 的 `summary` 模式读取已提取的全文，跟随侧栏本次请求的生命周期。
+网页总结使用 `TRANSMATE_PAGE_READ` 的 `summary` 模式按原标签页和文档 ID 读取正文。每个窗口的侧栏保留最近一次总结，显示网页标题、域名和分批进度。切换标签页会隐藏总结，返回来源页时恢复。重试仍读取同一文档。来源页导航、标签页离开原窗口或翻译配置变更会清除该总结。
 
 ## 配置、权限与 AI 请求
 
