@@ -167,7 +167,7 @@ function renderPermissions(origins) {
   if (!origins.length) {
     const empty = document.createElement("li");
     empty.className = "permission-empty";
-    empty.textContent = "当前没有已授权的服务域名。";
+    empty.textContent = "当前没有已授权的域名。";
     permissionList.append(empty);
     return;
   }
@@ -514,7 +514,7 @@ clearKeyButton.addEventListener("click", async () => {
 });
 
 resetButton.addEventListener("click", async () => {
-  if (operationBusy || !window.confirm("确定重置全部配置、清除密钥并撤销已授权域名吗？")) return;
+  if (operationBusy || !window.confirm("确定重置 AI 服务配置、清除密钥并撤销不再使用的域名授权吗？")) return;
   cancelConnectionCheck();
   setBusy(true, "manage");
   try {
@@ -522,7 +522,7 @@ resetButton.addEventListener("click", async () => {
     applyProfiles({ activeId: null, profiles: [] }, null);
     showStatus(result.cleanupFailed
       ? "配置已重置，但部分域名权限未能撤销。请在下方列表中手动处理。"
-      : "本机配置和密钥已重置，已撤销授权域名。", result.cleanupFailed ? "error" : "success");
+      : "AI 服务配置和密钥已重置，已撤销不再使用的域名授权。", result.cleanupFailed ? "error" : "success");
   } catch (error) {
     showSettingsFailure(error, "重置失败，原配置仍保留。请检查浏览器存储后重试。");
   } finally {
@@ -567,5 +567,8 @@ async function initialize() {
     setBusy(false);
   }
 }
+
+chrome.permissions.onAdded?.addListener(() => { void refreshPermissions(); });
+chrome.permissions.onRemoved?.addListener(() => { void refreshPermissions(); });
 
 initialize();

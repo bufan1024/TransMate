@@ -20,19 +20,20 @@ async function waitFor(predicate) {
 
 function fakeChrome({
   settings = { apiKey: 'private-test-key' }, session = {}, inject, storageAccessError = false,
-  selectionResults = [], currentTab = tab(),
+  selectionResults = [], currentTab = tab(), pageTranslationSites = [],
 } = {}) {
   const sessionState = { ...session };
   const listeners = {};
   const calls = {
     menus: [], behavior: [], accessLevels: [], injections: [], messages: [],
-    writes: [], opens: [], removals: [], queries: [], badges: [], titles: [], options: 0,
+    writes: [], opens: [], removals: [], queries: [], badges: [], titles: [], createdTabs: [], options: 0,
   };
   const api = {
     runtime: {
       onInstalled: { addListener: (fn) => { listeners.installed = fn; } },
       onMessage: { addListener: (fn) => { listeners.message = fn; } },
       openOptionsPage: async () => { calls.options += 1; },
+      getURL: (file) => `chrome-extension://test/${file}`,
     },
     contextMenus: {
       create: (item) => { calls.menus.push(item); },
@@ -55,7 +56,7 @@ function fakeChrome({
           calls.accessLevels.push(value);
           if (storageAccessError) throw new Error('access level denied');
         },
-        get: async () => ({ settings }),
+        get: async () => ({ settings, pageTranslationSites }),
       },
       session: {
         set: async (value) => { calls.writes.push(value); Object.assign(sessionState, value); },
@@ -80,10 +81,11 @@ function fakeChrome({
           ? selectionResults(details) : selectionResults;
         if (inject) return inject(details);
         const frameId = details.target.frameIds[0];
-        return [{ frameId, documentId: 'doc-' + details.target.tabId + '-' + frameId }];
+        return [{ frameId, documentId: 'doc-' + details.target.tabId + '-' + frameId, result: new URL(currentTab.url).origin }];
       },
     },
     tabs: {
+      create: async (details) => { calls.createdTabs.push(details); },
       query: async (query) => {
         calls.queries.push(query);
         return currentTab ? [currentTab] : [];
@@ -167,11 +169,107 @@ test('installs selection and page menus, preserves toolbar side panel, and prote
   assert.deepEqual(calls.menus, [
     { id: 'translate-selection', title: '用 TransMate 翻译', contexts: ['selection'] },
     { id: 'translate-video-captions', title: '翻译视频字幕', contexts: ['page', 'video'], documentUrlPatterns: ['http://*/*', 'https://*/*'] },
+    { id: 'page-translation-site-settings', title: '本站自动翻译设置', contexts: ['page'],
+      documentUrlPatterns: ['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*'] },
     { id: 'translate-page', title: '整页双语翻译', contexts: ['page'], documentUrlPatterns: ['http://*/*', 'https://*/*'] },
     { id: 'summarize-page', title: '总结网页重点', contexts: ['page'], documentUrlPatterns: ['http://*/*', 'https://*/*'] },
   ]);
   assert.deepEqual(calls.behavior, [{ openPanelOnActionClick: true }]);
   assert.deepEqual(calls.accessLevels, [{ accessLevel: 'TRUSTED_CONTEXTS' }]);
+});
+
+test('site menu opens management with only the originating site address', async () => {
+  const { api, calls } = fakeChrome();
+  const router = registerBackground(api);
+  await router.onClicked({ menuItemId: 'page-translation-site-settings' },
+    tab(17, 7, 'https://example.test:8443/article?private=never-send#scroll'));
+  assert.equal(calls.createdTabs.length, 1);
+  const settingsUrl = new URL(calls.createdTabs[0].url);
+  assert.equal(settingsUrl.pathname, '/options.html');
+  assert.equal(settingsUrl.searchParams.get('site'), 'https://example.test:8443');
+  assert.equal(settingsUrl.hash, '#site-translation');
+  assert.equal(calls.injections.length, 0);
+});
+
+test('automatic page translation requires opt-in, a matching document, and Chrome permission', async () => {
+  const origin = 'https://example.test:8443';
+  const differentPort = 'https://example.test:8444';
+  const sites = [];
+  let allowed = false;
+  let actualOrigin = origin;
+  const { api, calls, listeners } = fakeChrome({
+    pageTranslationSites: sites,
+    inject: () => [{ frameId: 0, documentId: 'doc-17-0', result: actualOrigin }],
+  });
+  api.permissions.contains = async () => allowed;
+  mockPageDemand(api, [{ id: 1, text: 'page' }]);
+  const batches = [];
+  const dependencies = {
+    translatePageImpl: async ({ blocks, onChunk }) => {
+      batches.push(blocks);
+      await onChunk([{ id: 1, text: '译文' }]);
+    },
+  };
+  const router = registerBackground(api, dependencies);
+
+  const complete = (address) => listeners.updated(17, { status: 'complete' }, tab(17, 7, address + '/read'));
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  complete(origin);
+  await settle();
+  assert.equal(calls.injections.length, 0);
+  sites.push(origin);
+  complete(origin);
+  await settle();
+  assert.equal(calls.injections.length, 0);
+  allowed = true;
+  complete(differentPort);
+  await settle();
+  assert.equal(calls.injections.length, 0);
+
+  actualOrigin = differentPort;
+  complete(origin);
+  await settle();
+  assert.equal(calls.injections.length, 1);
+  assert.equal(messages(calls, 'TRANSMATE_PAGE_READ').length, 0, 'redirected documents must not be read');
+  actualOrigin = origin;
+  complete(origin);
+  await waitFor(() => messages(calls, 'TRANSMATE_PAGE_STATUS').at(-1)?.message.status === 'success');
+  assert.equal(batches.length, 1);
+  const read = messages(calls, 'TRANSMATE_PAGE_READ')[0].message;
+  assert.equal(read.expectedOrigin, origin);
+  await router.onMessage({ type: 'TRANSMATE_PAGE_CANCEL', requestId: read.requestId }, sender());
+  registerBackground(api, dependencies);
+  complete(origin);
+  await settle();
+  assert.equal(messages(calls, 'TRANSMATE_PAGE_READ').length, 1,
+    'a repeated complete event must not restart a cancelled document after worker idle');
+});
+
+test('disabling automatic translation cancels only the opted-in request and prevents its late output', async () => {
+  const origin = 'https://example.test';
+  const sites = [origin];
+  const { api, calls, listeners, sessionState } = fakeChrome({ pageTranslationSites: sites });
+  mockPageDemand(api, [{ id: 1, text: 'page' }]);
+  const started = deferred();
+  const late = deferred();
+  const router = registerBackground(api, {
+    translatePageImpl: async ({ signal, onChunk }) => {
+      started.resolve(signal);
+      await late.promise;
+      await onChunk([{ id: 1, text: '迟到' }]);
+    },
+  });
+  listeners.updated(17, { status: 'complete' }, tab());
+  const signal = await started.promise;
+  const autoRecord = Object.values(sessionState).find((rec) => rec?.autoOrigin === origin);
+  assert.ok(autoRecord);
+  sites.splice(0, 1);
+  listeners.storageChanged({ pageTranslationSites: { oldValue: [origin], newValue: [] } }, 'local');
+  assert.equal(signal.aborted, true);
+  late.resolve();
+  await router.onMessage({ type: 'TRANSMATE_PAGE_MORE', requestId: autoRecord.requestId }, sender());
+  assert.equal(messages(calls, 'TRANSMATE_PAGE_APPEND').length, 0);
+  assert.equal(messages(calls, 'TRANSMATE_PAGE_CLEAR').length, 1);
 });
 
 test('page summary hands off only a reference to the originating document', async () => {

@@ -6,8 +6,13 @@ import { MAX_LONG_TEXT_LENGTH } from './lib/long-translation.js';
 import { MAX_TEXT_LENGTH, translate } from './lib/translator.js';
 import { GLOSSARY_STORAGE_KEY, glossaryAffectsTranslations } from './lib/glossary.js';
 import { createVideoActions, VIDEO_CUE, VIDEO_MENU, VIDEO_STOP } from './lib/video-actions.js';
+import {
+  PAGE_TRANSLATION_SITES, SITE_MENU_PATTERNS, forgetRevokedTranslationSites, pageTranslationSite, storedSites,
+} from './lib/page-translation-sites.js';
+import { withSettingsLock } from './lib/settings-management.js';
 
 const MENU_ID = 'translate-selection';
+const SITE_SETTINGS_MENU = 'page-translation-site-settings';
 const INLINE_TIMEOUT_MS = 25_000;
 const INLINE_SCRIPT = 'content-script.js';
 const INLINE_SESSION_PREFIX = 'inlineSelection:';
@@ -110,6 +115,9 @@ export function registerBackground(chromeApi, {
     });
     chromeApi.contextMenus.create({
       id: VIDEO_MENU, title: '翻译视频字幕', contexts: ['page', 'video'], documentUrlPatterns: ['http://*/*', 'https://*/*'],
+    });
+    chromeApi.contextMenus.create({
+      id: SITE_SETTINGS_MENU, title: '本站自动翻译设置', contexts: ['page'], documentUrlPatterns: SITE_MENU_PATTERNS,
     });
     for (const [id, title] of [[PAGE_TRANSLATION_MENU, '整页双语翻译'], [PAGE_SUMMARY_MENU, '总结网页重点']]) {
       chromeApi.contextMenus.create({
@@ -398,6 +406,13 @@ export function registerBackground(chromeApi, {
 
   async function onClicked(info, tab) {
     if (info.menuItemId === VIDEO_MENU) return videoActions.start(tab, info);
+    if (info.menuItemId === SITE_SETTINGS_MENU) {
+      const site = pageTranslationSite(tab?.url);
+      if (site) await chromeApi.tabs.create({
+        url: `${chromeApi.runtime.getURL('options.html')}?site=${encodeURIComponent(site.origin)}#site-translation`,
+      });
+      return;
+    }
     if (info.menuItemId === PAGE_TRANSLATION_MENU) return pageActions.startTranslation(tab);
     if (info.menuItemId === PAGE_SUMMARY_MENU) return pageActions.openSummary(tab);
     if (info.menuItemId !== MENU_ID || !info.selectionText?.trim()) return;
@@ -627,14 +642,23 @@ export function registerBackground(chromeApi, {
     if (entry) cancel(entry);
     void forgetTab(tabId).catch(() => {});
   });
-  chromeApi.tabs.onUpdated?.addListener((tabId, changeInfo) => {
-    if (!changeInfo.url && changeInfo.status !== 'loading') return;
-    videoActions.leave(tabId);
-    pageActions.leavePage(tabId);
-    latestIntentByTab.delete(tabId);
-    const entry = activeByTab.get(tabId);
-    if (entry) cancel(entry, { hide: true });
-    void forgetTab(tabId, { hide: true }).catch(() => {});
+  chromeApi.tabs.onUpdated?.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.url || changeInfo.status === 'loading') {
+      videoActions.leave(tabId);
+      pageActions.leavePage(tabId);
+      latestIntentByTab.delete(tabId);
+      const entry = activeByTab.get(tabId);
+      if (entry) cancel(entry, { hide: true });
+      void forgetTab(tabId, { hide: true }).catch(() => {});
+    }
+    if (changeInfo.status === 'complete') {
+      void pageActions.startTranslation(tab, { auto: true }).catch(() => {});
+    }
+  });
+
+  chromeApi.permissions.onRemoved?.addListener(() => {
+    void withSettingsLock(globalThis.navigator?.locks, () =>
+      forgetRevokedTranslationSites(chromeApi.storage.local, chromeApi.permissions)).catch(() => {});
   });
   chromeApi.windows?.onRemoved?.addListener((windowId) => latestPanelSelectionByWindow.delete(windowId));
 
@@ -654,7 +678,14 @@ export function registerBackground(chromeApi, {
   }
 
   chromeApi.storage.onChanged?.addListener((changes, area) => {
-    if (area !== 'local' || (!changes.settings && !glossaryAffectsTranslations(changes[GLOSSARY_STORAGE_KEY]))) return;
+    if (area !== 'local') return;
+    const changedSites = changes[PAGE_TRANSLATION_SITES];
+    if (changedSites) {
+      const enabled = new Set(storedSites(changedSites.newValue).map(({ origin }) => origin));
+      const disabled = storedSites(changedSites.oldValue).map(({ origin }) => origin).filter((origin) => !enabled.has(origin));
+      pageActions.cancelAutoSites(new Set(disabled));
+    }
+    if (!changes.settings && !glossaryAffectsTranslations(changes[GLOSSARY_STORAGE_KEY])) return;
     videoActions.cancelAll();
     pageActions.cancelAll();
     for (const entry of activeByTab.values()) invalidate(entry);
