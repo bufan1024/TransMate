@@ -1,6 +1,6 @@
 (() => {
   const SINGLETON_KEY = '__transmatePageTranslation';
-  if (window !== window.top || globalThis[SINGLETON_KEY]) return;
+  if (window !== window.top || globalThis[SINGLETON_KEY]) return location.origin;
   globalThis[SINGLETON_KEY] = true;
 
   const MAX_CHARACTERS = 30_000;
@@ -647,6 +647,10 @@
   window.addEventListener('pagehide', () => dismiss(status?.requestId || session?.requestId));
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.expectedOrigin && message.expectedOrigin !== location.origin) {
+      sendResponse({ ok: false });
+      return;
+    }
     switch (message?.type) {
       case 'TRANSMATE_PAGE_READ':
         sendResponse(read(message));
@@ -665,4 +669,5 @@
         break;
     }
   });
+  return location.origin;
 })();

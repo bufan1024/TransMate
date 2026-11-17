@@ -157,6 +157,24 @@ test('clearing the stored key retires its unused origin', async () => {
   assert.equal(result.retiredOrigin, 'https://old.example/*');
 });
 
+test('saving or resetting AI settings preserves grants needed for opted-in sites', async () => {
+  const removed = [];
+  const storageArea = {
+    setAccessLevel: async () => {}, set: async () => {}, remove: async () => {},
+    get: async () => ({ pageTranslationSites: ['https://old.example:443', 'https://old.example'] }),
+  };
+  const permissionsApi = {
+    getAll: async () => ({ origins: ['https://old.example/*', 'https://unused.example/*'] }),
+    remove: async ({ origins }) => { removed.push(...origins); return true; },
+  };
+  assert.equal((await persistSettings({
+    nextSettings: next, previousSettings: saved, storageArea, permissionsApi,
+  })).retiredOrigin, null);
+  assert.deepEqual(removed, []);
+  await persistSettings({ nextSettings: null, previousSettings: next, storageArea, permissionsApi });
+  assert.deepEqual(removed, ['https://unused.example/*']);
+});
+
 test('manual removal targets only a currently granted exact origin', async () => {
   const calls = [];
   const permissionsApi = {
@@ -205,7 +223,7 @@ test('concurrent saves cannot leave the final service without its host permissio
   const lockManager = createLockManager();
   let reads = 0;
   const read = state.storageArea.get;
-  state.storageArea.get = async (...args) => { reads += 1; return read(...args); };
+  state.storageArea.get = async (key) => { if (key === 'settings') reads += 1; return read(key); };
   let releaseFirstCleanup;
   let firstCleanupStarted;
   const reachedCleanup = new Promise((resolve) => { firstCleanupStarted = resolve; });
@@ -242,7 +260,7 @@ test('a save queued behind reset cannot persist settings after its grant is revo
   const lockManager = createLockManager();
   let reads = 0;
   const read = state.storageArea.get;
-  state.storageArea.get = async (...args) => { reads += 1; return read(...args); };
+  state.storageArea.get = async (key) => { if (key === 'settings') reads += 1; return read(key); };
   let releaseReset;
   let resetStarted;
   const reachedReset = new Promise((resolve) => { resetStarted = resolve; });

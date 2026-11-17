@@ -1,8 +1,13 @@
 import { selectionStorageKey, selectionWindowIdFromKey, shouldAcceptSelection } from './lib/selection.js';
 import { createPageActions, PAGE_TRANSLATION_MENU, PAGE_SUMMARY_MENU } from './lib/page-actions.js';
 import { translate } from './lib/translator.js';
+import {
+  PAGE_TRANSLATION_SITES, SITE_MENU_PATTERNS, forgetRevokedTranslationSites, pageTranslationSite, storedSites,
+} from './lib/page-translation-sites.js';
+import { withSettingsLock } from './lib/settings-management.js';
 
 const MENU_ID = 'translate-selection';
+const SITE_SETTINGS_MENU = 'page-translation-site-settings';
 const INLINE_TIMEOUT_MS = 25_000;
 const INLINE_SCRIPT = 'content-script.js';
 const INLINE_SESSION_PREFIX = 'inlineSelection:';
@@ -71,6 +76,9 @@ export function registerBackground(chromeApi, {
       id: MENU_ID,
       title: '用 TransMate 翻译',
       contexts: ['selection'],
+    });
+    chromeApi.contextMenus.create({
+      id: SITE_SETTINGS_MENU, title: '本站自动翻译设置', contexts: ['page'], documentUrlPatterns: SITE_MENU_PATTERNS,
     });
     for (const [id, title] of [[PAGE_TRANSLATION_MENU, '整页双语翻译'], [PAGE_SUMMARY_MENU, '总结网页重点']]) {
       chromeApi.contextMenus.create({
@@ -315,6 +323,13 @@ export function registerBackground(chromeApi, {
   }
 
   async function onClicked(info, tab) {
+    if (info.menuItemId === SITE_SETTINGS_MENU) {
+      const site = pageTranslationSite(tab?.url);
+      if (site) await chromeApi.tabs.create({
+        url: `${chromeApi.runtime.getURL('options.html')}?site=${encodeURIComponent(site.origin)}#site-translation`,
+      });
+      return;
+    }
     if (info.menuItemId === PAGE_TRANSLATION_MENU) return pageActions.startTranslation(tab);
     if (info.menuItemId === PAGE_SUMMARY_MENU) return pageActions.openSummary(tab);
     if (info.menuItemId !== MENU_ID || !info.selectionText?.trim()) return;
@@ -471,14 +486,24 @@ export function registerBackground(chromeApi, {
     if (entry) cancel(entry);
     void forgetTab(tabId).catch(() => {});
   });
-  chromeApi.tabs.onUpdated?.addListener((tabId, changeInfo) => {
-    if (!changeInfo.url && changeInfo.status !== 'loading') return;
-    pageActions.leavePage(tabId);
-    latestIntentByTab.delete(tabId);
-    const entry = activeByTab.get(tabId);
-    if (entry) cancel(entry, { hide: true });
-    void forgetTab(tabId, { hide: true }).catch(() => {});
+  chromeApi.tabs.onUpdated?.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.url || changeInfo.status === 'loading') {
+      pageActions.leavePage(tabId);
+      latestIntentByTab.delete(tabId);
+      const entry = activeByTab.get(tabId);
+      if (entry) cancel(entry, { hide: true });
+      void forgetTab(tabId, { hide: true }).catch(() => {});
+    }
+    if (changeInfo.status === 'complete') {
+      void pageActions.startTranslation(tab, { auto: true }).catch(() => {});
+    }
   });
+
+  chromeApi.permissions.onRemoved?.addListener(() => {
+    void withSettingsLock(globalThis.navigator?.locks, () =>
+      forgetRevokedTranslationSites(chromeApi.storage.local, chromeApi.permissions)).catch(() => {});
+  });
+
   function invalidate(entry) {
     if (entry.notice) return;
     if (entry.configInvalidated) return;
@@ -495,7 +520,14 @@ export function registerBackground(chromeApi, {
   }
 
   chromeApi.storage.onChanged?.addListener((changes, area) => {
-    if (area !== 'local' || !changes.settings) return;
+    if (area !== 'local') return;
+    const changedSites = changes[PAGE_TRANSLATION_SITES];
+    if (changedSites) {
+      const enabled = new Set(storedSites(changedSites.newValue).map(({ origin }) => origin));
+      const disabled = storedSites(changedSites.oldValue).map(({ origin }) => origin).filter((origin) => !enabled.has(origin));
+      pageActions.cancelAutoSites(new Set(disabled));
+    }
+    if (!changes.settings) return;
     pageActions.cancelAll();
     for (const entry of activeByTab.values()) invalidate(entry);
     // MV3 may have restarted the worker while a completed card remained open.

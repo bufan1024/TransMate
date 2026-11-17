@@ -926,7 +926,42 @@ try {
   await articlePage.waitForTimeout(300);
   assert.equal(requests.length, beforeDynamicCancel, '取消后监听停止，不再提交动态正文');
 
-  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、取消旧结果、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译、整页失败恢复、动态正文、网页原文替换模式和网页重点总结');
+  const exactSite = new URL(articleUrl).origin;
+  const beforeOffSiteLoad = requests.length;
+  await articlePage.goto(articleUrl);
+  await articlePage.waitForTimeout(350);
+  assert.equal(requests.length, beforeOffSiteLoad, '默认关闭时正常网页不触发自动翻译');
+  assert.equal(await pageStatus.count(), 0);
+
+  const siteAddress = options.getByLabel('站点地址');
+  await siteAddress.fill(articleUrl + '?private=omit-this#omit-this');
+  await options.getByRole('button', { name: '授权并启用' }).click();
+  const disableSite = options.getByRole('button', { name: `关闭 ${exactSite} 的自动翻译` });
+  await disableSite.waitFor();
+  assert.deepEqual(await options.evaluate(() => globalThis.__permissionRequests.at(-1).origins), ['http://127.0.0.1/*']);
+  assert.deepEqual(await options.evaluate(async () => (await chrome.storage.local.get('pageTranslationSites')).pageTranslationSites),
+    [exactSite], '站点偏好不保存完整页面地址');
+  assert.equal(requests.length, beforeOffSiteLoad, '设置启用不读取已打开的网页');
+
+  await articlePage.reload();
+  await pageStatus.getByText(/自动翻译/).waitFor({ timeout: 6000 });
+  await pageStatus.getByRole('button', { name: '移除译文' }).waitFor();
+  assert.deepEqual(await pageTranslations.allTextContents(), articleTranslations);
+  assert.deepEqual(requestedPageText(beforeOffSiteLoad), articleBlocks);
+
+  await disableSite.click();
+  await disableSite.waitFor({ state: 'detached' });
+  await pageStatus.waitFor({ state: 'detached' });
+  assert.equal(await pageTranslations.count(), 0, '关闭站点偏好会移除自动译文');
+  const beforeSiteDisabled = requests.length;
+  await articlePage.reload();
+  await articlePage.waitForTimeout(350);
+  assert.equal(requests.length, beforeSiteDisabled, '关闭后重新加载不启动自动翻译');
+  await triggerContextMenu(worker, articleTab.id, 'translate-page');
+  await pageStatus.getByRole('button', { name: '移除译文' }).waitFor();
+  assert.deepEqual(await pageTranslations.allTextContents(), articleTranslations, '关闭后仍可手动翻译');
+
+  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、取消旧结果、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译、整页失败恢复、动态正文、网页原文替换模式、站点自动翻译和网页重点总结');
   console.log('Mock POST requests: ' + requests.map((item) => item.text).join(', '));
 } finally {
   releaseSlowResponse?.();

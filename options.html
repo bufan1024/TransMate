@@ -7,6 +7,7 @@
     <title>TransMate · 设置</title>
     <link rel="stylesheet" href="./options.css" />
     <script type="module" src="./options.js"></script>
+    <script type="module" src="./site-options.js"></script>
   </head>
   <body>
     <div class="page-shell">
@@ -62,11 +63,26 @@
             <section class="management-section" aria-labelledby="management-heading">
               <div class="management-heading"><h3 id="management-heading">本机凭据与授权</h3><p>已保存的密钥不会回填。切换服务或接口后，请填写新密钥。</p></div>
               <div class="management-actions"><button id="clear-saved-key" type="button">清除已保存密钥</button><button id="reset-settings" type="button">重置全部配置</button></div>
-              <h4>已授权的服务域名</h4>
+              <h4>已授权的域名</h4>
               <ul id="permission-list" class="permission-list" aria-label="已授权域名"><li class="permission-empty">正在读取…</li></ul>
-              <p class="permission-help">撤销当前服务的访问权限后，需重新保存或测试连接才能继续翻译。</p>
+              <p class="permission-help">撤销服务域名的权限需要重新授权。撤销网站的权限也会关闭该网站的自动翻译。</p>
             </section>
           </form>
+          <section id="site-translation" class="management-section" aria-labelledby="site-translation-heading">
+            <div class="management-heading">
+              <h3 id="site-translation-heading">站点自动翻译</h3>
+              <p>默认关闭。启用后，新加载的站点页面会将阅读位置附近的正文发送给你配置的 AI 服务。偏好仅应用于所填网址的协议、主机与端口，Chrome 的主机权限覆盖同一主机的端口。</p>
+            </div>
+            <form id="site-translation-form" class="site-translation-form">
+              <div class="field">
+                <label for="site-translation-address">站点地址</label>
+                <input id="site-translation-address" type="url" placeholder="https://example.com" required />
+              </div>
+              <button id="enable-site-translation" class="permission-revoke" type="submit">授权并启用</button>
+            </form>
+            <div id="site-translation-status" class="form-status" role="status" aria-live="polite" hidden></div>
+            <ul id="site-translation-list" class="permission-list" aria-label="已启用自动翻译的站点"></ul>
+          </section>
           <footer>TRANSMATE <span>·</span> 让阅读继续</footer>
         </div>
       </main>
