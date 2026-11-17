@@ -21,6 +21,7 @@ const elements = {
   count: document.querySelector("#source-count"),
   target: document.querySelector("#target-label"),
   translate: document.querySelector("#translate-button"),
+  stop: document.querySelector("#stop-button"),
   clear: document.querySelector("#clear-source"),
   retry: document.querySelector("#retry-button"),
   copy: document.querySelector("#copy-button"),
@@ -28,6 +29,7 @@ const elements = {
   state: document.querySelector("#result-state"),
   empty: document.querySelector("#result-empty"),
   loading: document.querySelector("#result-loading"),
+  stopped: document.querySelector("#result-stopped"),
   result: document.querySelector("#result-text"),
   error: document.querySelector("#result-error"),
   errorMessage: document.querySelector("#error-message"),
@@ -40,11 +42,10 @@ let pendingSelection = null;
 let handledSelectionId = null;
 let consumingSelectionId = null;
 let newestSelection = null;
-let activeController = null;
+let activeRequest = null;
 let currentText = "";
 let translation = "";
 let requestNumber = 0;
-let busy = false;
 let currentWindowId = null;
 let settingsChangeVersion = 0;
 const queuedSelections = new Map();
@@ -65,24 +66,35 @@ function normalizedSettings() {
 function updateControls() {
   const length = elements.input.value.length;
   const ready = Boolean(normalizedSettings());
+  const busy = Boolean(activeRequest);
+  const focused = document.activeElement;
   elements.count.textContent = `${length.toLocaleString("zh-CN")} 字`;
   elements.count.style.color = length > MAX_TEXT_LENGTH ? "#9e3524" : "";
   elements.clear.disabled = length === 0;
   const consumingSelection = Boolean(pendingSelection || consumingSelectionId);
   elements.translate.disabled = busy || consumingSelection || !length || length > MAX_TEXT_LENGTH || !ready;
+  elements.translate.hidden = busy;
+  elements.stop.hidden = !busy;
   elements.retry.disabled = busy || consumingSelection || !currentText || !ready;
   elements.copy.disabled = !translation;
   elements.target.textContent = `译为${targetNames[settings.targetLanguage] || settings.targetLanguage || "目标语言"}`;
   elements.banner.hidden = ready;
   elements.bannerMessage.textContent = "先配置 AI 服务，即可开始翻译。";
+  if (busy && (focused === elements.translate || focused === elements.retry)) elements.stop.focus();
+  if (!busy && focused === elements.stop) {
+    (elements.translate.disabled ? elements.input : elements.translate).focus();
+  }
 }
 
 function showResult(kind, value = "") {
   elements.empty.hidden = kind !== "empty";
   elements.loading.hidden = kind !== "loading";
+  elements.stopped.hidden = kind !== "stopped";
   elements.result.hidden = kind !== "success";
   elements.error.hidden = kind !== "error";
-  elements.state.textContent = { empty: "等待输入", loading: "翻译中", success: "已完成", error: "遇到问题" }[kind];
+  elements.state.textContent = {
+    empty: "等待输入", loading: "翻译中", stopped: "已停止", success: "已完成", error: "遇到问题",
+  }[kind];
   if (kind === "success") elements.result.textContent = value;
   if (kind === "error") elements.errorMessage.textContent = value;
 }
@@ -91,16 +103,18 @@ function translationSettingsChanged(nextSettings) {
   return TRANSLATION_SETTING_KEYS.some((key) => settings[key] !== nextSettings[key]);
 }
 
-function invalidateTranslation() {
+function invalidateTranslation(kind = "empty") {
   requestNumber += 1;
-  activeController?.abort();
-  activeController = null;
-  busy = false;
+  if (activeRequest) {
+    activeRequest.controller.abort();
+    clearTimeout(activeRequest.timeoutId);
+    activeRequest = null;
+  }
   translation = "";
-  currentText = "";
+  if (kind !== "stopped") currentText = "";
   elements.result.textContent = "";
   elements.copyLabel.textContent = "复制译文";
-  showResult("empty");
+  showResult(kind);
 }
 
 function errorMessage(error) {
@@ -111,7 +125,7 @@ function errorMessage(error) {
 }
 
 async function runTranslation(text) {
-  if (busy || pendingSelection || consumingSelectionId) return;
+  if (activeRequest || pendingSelection || consumingSelectionId) return;
   const trimmed = text.trim();
   if (!trimmed) return;
   if (trimmed.length > MAX_TEXT_LENGTH) {
@@ -127,18 +141,16 @@ async function runTranslation(text) {
     return;
   }
 
-  activeController?.abort();
   const controller = new AbortController();
-  activeController = controller;
   let timedOut = false;
   const timeoutId = setTimeout(() => {
     timedOut = true;
     controller.abort();
   }, 45000);
   const thisRequest = ++requestNumber;
+  activeRequest = { controller, timeoutId };
   currentText = trimmed;
   translation = "";
-  busy = true;
   elements.copyLabel.textContent = "复制译文";
   showResult("loading");
   updateControls();
@@ -155,8 +167,7 @@ async function runTranslation(text) {
   } finally {
     clearTimeout(timeoutId);
     if (thisRequest === requestNumber) {
-      busy = false;
-      activeController = null;
+      activeRequest = null;
       updateControls();
     }
   }
@@ -225,16 +236,9 @@ elements.input.addEventListener("input", () => {
   if (pendingSelection) discardSelection(pendingSelection.storageKey);
   pendingSelection = null;
   consumingSelectionId = null;
-  activeController?.abort();
-  requestNumber += 1;
-  activeController = null;
-  busy = false;
-  translation = "";
-  currentText = "";
+  invalidateTranslation();
   if (elements.input.value.length > MAX_TEXT_LENGTH) {
     showResult("error", `原文超过 ${MAX_TEXT_LENGTH.toLocaleString("zh-CN")} 字，请缩短后重试。`);
-  } else {
-    showResult("empty");
   }
   updateControls();
 });
@@ -245,6 +249,11 @@ elements.input.addEventListener("keydown", (event) => {
   }
 });
 elements.translate.addEventListener("click", () => runTranslation(elements.input.value));
+elements.stop.addEventListener("click", () => {
+  if (!activeRequest) return;
+  invalidateTranslation("stopped");
+  updateControls();
+});
 elements.retry.addEventListener("click", () => runTranslation(currentText));
 elements.clear.addEventListener("click", () => {
   elements.input.value = "";

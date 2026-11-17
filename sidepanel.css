@@ -70,6 +70,8 @@ h1 em{font-style:normal;color:var(--accent-dark)}
 .translate-button{display:flex;align-items:center;justify-content:space-between;width:100%;height:42px;padding:0 15px;border:1px solid var(--ink);border-radius:7px;background:var(--ink);color:var(--paper-2);font-size:12px;font-weight:700;letter-spacing:.2px;transition:transform .2s,background .2s,box-shadow .2s}
 .translate-button:not(:disabled):hover{background:#353b33;transform:translateY(-2px);box-shadow:0 7px 15px rgba(32,35,31,.16)}
 .translate-button:disabled{opacity:.48}.button-arrow{font-family:Georgia,serif;font-size:22px;line-height:1;font-weight:400}
+.stop-button{justify-content:center;border-color:var(--line);background:var(--paper-2);color:var(--accent-dark)}
+.stop-button:not(:disabled):hover{border-color:var(--accent);background:var(--paper);color:var(--accent-dark)}
 .result-section{margin:25px 0 0;animation:reveal .6s .13s ease-out both}
 .result-section .section-label{margin:0 1px 11px}.result-section h2{margin:0;color:var(--ink);font-size:11px;font-weight:650}
 .result-panel{min-height:145px;padding:17px 18px;border:1px solid var(--line);border-radius:12px;background:rgba(255,253,248,.66);overflow-wrap:anywhere}
@@ -78,6 +80,7 @@ h1 em{font-style:normal;color:var(--accent-dark)}
 .result-empty p{margin:11px 0 3px;font-family:"Iowan Old Style","Songti SC",Georgia,serif;font-size:15px;font-weight:600}
 .result-empty small{color:#a0a297;font-size:10px}
 .result-loading{display:flex;align-items:center;gap:11px;min-height:105px;color:var(--muted);font-size:12px}
+.result-stopped{margin:0;color:var(--muted);font-size:12px}
 .loader{width:18px;height:18px;border:2px solid #e4d5c9;border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
 .result-text{margin:0;white-space:pre-wrap;color:var(--ink);font-size:14px;line-height:1.8}
 .result-error strong{display:block;color:#9e3524;font-size:12px}.result-error p{margin:8px 0 0;color:#775a50;font-size:11px;line-height:1.7}
