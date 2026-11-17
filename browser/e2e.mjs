@@ -8,11 +8,18 @@ import { chromium } from 'playwright';
 
 const extensionDir = fileURLToPath(new URL('../', import.meta.url));
 const chromiumExecutable = process.env.TRANSMATE_CHROMIUM_EXECUTABLE;
+const longInlineSource = 'The river carried small branches and leaves past the quiet town after the rain. '.repeat(20).trim();
 const fixturePage = `<!doctype html>
 <html lang="en">
 <meta charset="utf-8">
 <title>TransMate inline fixture</title>
-<style>body { margin: 32px; font: 18px sans-serif; } p { margin: 20px 0; }</style>
+<style>
+  body { margin: 32px; min-height: 140vh; font: 18px sans-serif; }
+  p { margin: 20px 0; }
+  #inline-first { margin-top: 130px; }
+  #inline-long { font-size: 12px; }
+</style>
+<button id="fixture-control">Page control</button>
 <p id="inline-first">inline hello</p>
 <p id="inline-slow">inline slow</p>
 <p id="inline-latest">inline latest</p>
@@ -20,6 +27,7 @@ const fixturePage = `<!doctype html>
 <p id="shortcut-paragraph">shortcut paragraph</p>
 <input id="shortcut-input" value="shortcut input">
 <iframe id="shortcut-frame" src="/inline-frame" title="Shortcut frame"></iframe>
+<p id="inline-long">${longInlineSource}</p>
 </html>`;
 const frameFixturePage = `<!doctype html>
 <html lang="en">
@@ -458,37 +466,71 @@ try {
   const inlineHost = inlinePage.locator('#transmate-inline-host');
   const initialPageCount = context.pages().length;
 
+  await inlinePage.locator('#fixture-control').focus();
   let selectedText = await selectFixtureText(inlinePage, 'inline-first');
   assert.equal(selectedText, 'inline hello');
   await triggerContextMenu(worker, inlineTabId, 'translate-selection', selectedText);
   await inlineHost.locator('.result').waitFor({ state: 'visible' });
   assert.equal(await inlineHost.locator('.source').textContent(), selectedText);
   assert.equal(await inlineHost.locator('.result').textContent(), '页内译文');
+  assert.equal(await inlineHost.locator('.eyebrow').textContent(), '译为简体中文');
+  assert.equal(await inlineHost.getByRole('button', { name: '复制译文' }).isVisible(), true);
   assert.equal(requests.filter((item) => item.text === selectedText).length, 1);
   assert.equal(inlinePage.url(), inlineUrl, '页内翻译不得跳转当前网页');
   assert.equal(context.pages().length, initialPageCount, '页内翻译不得新建窗口或标签页');
+  const originalBottom = await inlinePage.locator('#inline-first').evaluate((element) => element.getBoundingClientRect().bottom);
+  await waitUntil(async () => (await inlineHost.boundingBox())?.y > originalBottom,
+    '空余空间充足时，浮层应显示在选区下方');
   const bounds = await inlineHost.boundingBox();
   const viewport = inlinePage.viewportSize();
   assert.ok(bounds && viewport && bounds.x >= 0 && bounds.y >= 0
     && bounds.x + bounds.width <= viewport.width
     && bounds.y + bounds.height <= viewport.height,
   '浮层应保持在可见区域内');
+  assert.ok(bounds.height < 190, '短句译文应使用紧凑浮层');
+  assert.ok(await inlineHost.evaluate((host) => {
+    const shadow = host.shadowRoot;
+    return parseFloat(getComputedStyle(shadow.querySelector('.result')).fontSize)
+      > parseFloat(getComputedStyle(shadow.querySelector('.source')).fontSize);
+  }), '译文字号应大于原文预览');
+  assert.equal(await inlinePage.evaluate(() => document.activeElement.id), 'fixture-control',
+    '右键触发浮层应保留网页焦点');
+
+  const inlineCard = inlineHost.getByRole('dialog');
+  await inlinePage.emulateMedia({ colorScheme: 'light' });
+  const lightBackground = await inlineCard.evaluate((element) => getComputedStyle(element).backgroundColor);
+  await inlinePage.emulateMedia({ colorScheme: 'dark' });
+  assert.notEqual(await inlineCard.evaluate((element) => getComputedStyle(element).backgroundColor), lightBackground,
+    '浮层应随系统切换深色背景');
+  await inlinePage.emulateMedia({ colorScheme: null });
+
+  await inlinePage.evaluate(() => {
+    window.getSelection().removeAllRanges();
+    window.scrollTo(0, 56);
+  });
+  await waitUntil(async () => Math.abs((await inlineHost.boundingBox())?.y - (bounds.y - 56)) <= 2,
+    '清除选区后，滚动页面仍应跟随原选文');
+  await selectFixtureText(inlinePage, 'shortcut-paragraph');
+  const anchoredY = await inlineHost.evaluate(async (host) => {
+    window.scrollTo(0, 72);
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return host.getBoundingClientRect().top;
+  });
+  assert.ok(Math.abs(anchoredY - (bounds.y - 72)) <= 2, '滚动时已有浮层应忽略后续选区');
+  await inlinePage.evaluate(() => window.scrollTo(0, 0));
 
   await inlinePage.evaluate(() => {
     const shadow = document.querySelector('#transmate-inline-host').shadowRoot;
-    [...shadow.querySelectorAll('button')].find((button) => button.textContent === '重试').click();
-    [...shadow.querySelectorAll('button')].find((button) => button.textContent === '设置').click();
+    [...shadow.querySelectorAll('button')].find((button) => /^(重新翻译|重试)$/.test(button.textContent.trim())).click();
   });
   await inlinePage.waitForTimeout(150);
   assert.equal(requests.filter((item) => item.text === 'inline hello').length, 1,
     '网页脚本合成点击不得触发额外付费请求');
-  assert.equal(context.pages().length, initialPageCount,
-    '网页脚本合成点击不得打开设置页');
 
   // Simulate MV3 worker memory loss: retry must recover the selection from
   // extension session storage rather than relying on a module global.
   await worker.evaluate(() => globalThis.__transmateTestRouter.activeByTab.clear());
-  await inlineHost.getByRole('button', { name: '重试' }).click();
+  await inlineHost.getByRole('button', { name: /^(重新翻译|重试)$/ }).click();
   await waitUntil(() => requests.filter((item) => item.text === 'inline hello').length === 2,
     '后台恢复选文并重试');
   await waitUntil(async () => await inlineHost.locator('.result').isVisible()
@@ -501,6 +543,10 @@ try {
   });
   await inlineHost.locator('.error').waitFor({ state: 'visible' });
   assert.match(await inlineHost.locator('.error').textContent(), /配置已更新/);
+
+  await inlineHost.getByRole('button', { name: /^(去设置|设置)$/ }).evaluate((button) => button.click());
+  await inlinePage.waitForTimeout(150);
+  assert.equal(context.pages().length, initialPageCount, '网页脚本合成点击不得打开设置页');
 
   await inlineHost.getByRole('button', { name: '关闭翻译' }).click();
   await inlineHost.waitFor({ state: 'detached' });
@@ -529,7 +575,7 @@ try {
   selectedText = await selectFixtureText(inlinePage, 'inline-close-slow');
   await triggerContextMenu(worker, inlineTabId, 'translate-selection', selectedText);
   await waitUntil(() => requests.some((item) => item.text === 'inline close slow'), '关闭前的页内请求已发出');
-  await inlineHost.getByRole('button', { name: '关闭翻译' }).click();
+  await inlineHost.getByRole('button', { name: '停止翻译' }).click();
   await inlineHost.waitFor({ state: 'detached' });
   delayedInlineResponses.get('inline close slow').gate.resolve();
   await delayedInlineResponses.get('inline close slow').finished.promise;
@@ -563,7 +609,12 @@ try {
   '快捷键翻译普通段落');
   assert.equal(await inlineHost.locator('.source').textContent(), selectedText);
   assert.equal(requests.filter((item) => item.text === 'shortcut paragraph').length, 1);
-  await inlineHost.getByRole('button', { name: '关闭翻译' }).click();
+  assert.ok(await inlineHost.evaluate((host) => host.shadowRoot.querySelector('.card').contains(host.shadowRoot.activeElement)),
+    '快捷键触发应将焦点移入浮层');
+  await inlinePage.keyboard.press('Tab');
+  assert.equal(await inlineHost.evaluate((host) => host.shadowRoot.activeElement?.getAttribute('aria-label')), '关闭翻译',
+    'Tab 应到达浮层关闭操作');
+  await inlinePage.keyboard.press('Enter');
   await inlineHost.waitFor({ state: 'detached' });
 
   selectedText = await inlinePage.locator('#shortcut-input').evaluate((input) => {
@@ -579,8 +630,26 @@ try {
   '快捷键翻译输入框选文');
   assert.equal(await inlineHost.locator('.source').textContent(), selectedText);
   assert.equal(requests.filter((item) => item.text === 'shortcut input').length, 1);
-  await inlineHost.getByRole('button', { name: '关闭翻译' }).click();
+  assert.equal(await inlinePage.evaluate(() => document.activeElement?.id), 'transmate-inline-host',
+    '再次按快捷键前，焦点应仍在浮层内');
+  await inlinePage.locator('#shortcut-input').evaluate((input) => {
+    window.getSelection()?.removeAllRanges();
+    input.setSelectionRange(0, input.value.length);
+  });
+  assert.equal(await inlinePage.evaluate(() => window.getSelection()?.toString()), '',
+    '输入框失焦后，页面选区可能已清除');
+  await worker.evaluate(() => globalThis.__transmateTestRouter.activeByTab.clear());
+  await triggerShortcut(worker, inlineTabId);
+  await waitUntil(async () => requests.filter((item) => item.text === 'shortcut input').length === 2
+    && await inlineHost.locator('.result').isVisible()
+    && await inlineHost.locator('.result').textContent() === '快捷键输入译文',
+  '浮层持有焦点且后台已休眠时，再按快捷键应翻译同一输入框选文');
+  await inlinePage.keyboard.press('Escape');
   await inlineHost.waitFor({ state: 'detached' });
+  assert.deepEqual(await inlinePage.locator('#shortcut-input').evaluate((input) => ({
+    focused: document.activeElement === input,
+    selected: input.value.slice(input.selectionStart, input.selectionEnd),
+  })), { focused: true, selected: selectedText }, 'Escape 应将焦点还给原输入框并保留选区');
 
   await inlinePage.evaluate(() => {
     window.getSelection()?.removeAllRanges();
@@ -618,9 +687,58 @@ try {
   await inlinePage.locator('body').click({ position: { x: 4, y: 4 } });
   const beforeEmptyShortcut = requests.length;
   await triggerShortcut(worker, inlineTabId);
-  await inlineHost.getByText(/请先选中文字/).waitFor({ state: 'visible' });
+  const emptyShortcutHint = inlineHost.locator('.error');
+  await emptyShortcutHint.waitFor({ state: 'visible' });
+  assert.match(await emptyShortcutHint.textContent(), /请先选中文字/);
   assert.equal(requests.length, beforeEmptyShortcut, '空选文快捷键不得调用 AI 服务');
   assert.equal(context.pages().length, initialPageCount, '快捷键翻译不得新建窗口或标签页');
+  await inlinePage.keyboard.press('Escape');
+  await inlineHost.waitFor({ state: 'detached' });
+
+  await inlinePage.setViewportSize({ width: 320, height: 440 });
+  await inlinePage.locator('#inline-long').evaluate((source) => {
+    window.scrollBy(0, source.getBoundingClientRect().bottom - window.innerHeight + 24);
+  });
+  selectedText = await selectFixtureText(inlinePage, 'inline-long');
+  const lastSourceLineTop = await inlinePage.evaluate(() => {
+    const rects = window.getSelection().getRangeAt(0).getClientRects();
+    return rects[rects.length - 1].top;
+  });
+  await triggerContextMenu(worker, inlineTabId, 'translate-selection', selectedText);
+  await inlineHost.locator('.result').waitFor({ state: 'visible' });
+  await waitUntil(async () => {
+    const card = await inlineHost.boundingBox();
+    return card && card.y + card.height <= lastSourceLineTop;
+  }, '选区在视口底部时，浮层应翻到选区上方');
+  const collapsedHeight = await inlineHost.locator('.source').evaluate((source) => source.clientHeight);
+  await inlineHost.getByRole('button', { name: '展开原文' }).click();
+  const expanded = await inlineHost.evaluate(async (host) => {
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const { top, right, bottom, left } = host.getBoundingClientRect();
+    const source = host.shadowRoot.querySelector('.source');
+    const body = host.shadowRoot.querySelector('.body');
+    return {
+      sourceHeight: source.clientHeight,
+      sourceScrollHeight: source.scrollHeight,
+      bodyHeight: body.clientHeight,
+      bodyScrollHeight: body.scrollHeight,
+      inViewport: top >= 0 && left >= 0 && right <= window.innerWidth && bottom <= window.innerHeight,
+    };
+  });
+  assert.ok(expanded.sourceHeight > collapsedHeight, '展开后应显示完整原文');
+  assert.ok(expanded.sourceScrollHeight <= expanded.sourceHeight + 1, '原文不应形成独立滚动区');
+  assert.ok(expanded.bodyScrollHeight > expanded.bodyHeight, '长文使用统一的正文滚动区');
+  assert.ok(expanded.inViewport, '窄屏展开原文后浮层仍应留在视口内');
+  const scrollRegion = inlineHost.getByRole('region', { name: '翻译内容' });
+  assert.equal(await scrollRegion.getAttribute('tabindex'), '0', '正文有溢出时应能通过 Tab 聚焦');
+  await scrollRegion.focus();
+  await scrollRegion.evaluate((region) => { region.scrollTop = 0; });
+  await inlinePage.keyboard.press('End');
+  await waitUntil(() => scrollRegion.evaluate((region) => region.scrollTop > 0), '长文可通过键盘滚动');
+  await inlineHost.getByRole('button', { name: '收起原文' }).click();
+  assert.equal(await inlineHost.locator('.source').evaluate((source) => source.clientHeight), collapsedHeight);
+  await inlineHost.getByRole('button', { name: '关闭翻译' }).click();
+  await inlineHost.waitFor({ state: 'detached' });
 
   const articleUrl = new URL('/article-fixture', endpoint).href;
   const [articlePage, articleTab] = await Promise.all([
@@ -757,7 +875,7 @@ try {
   await pageStatus.getByText('网页正文已变动，请重新启动翻译。').waitFor({ timeout: 6000 });
   assert.equal(requests.length, beforeChangedViewport, '正文原位变动后不得发送已经过期的段落');
 
-  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、取消旧结果、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译和网页重点总结');
+  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译和网页重点总结');
   console.log('Mock POST requests: ' + requests.map((item) => item.text).join(', '));
 } finally {
   releaseSlowResponse?.();

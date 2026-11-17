@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { runInNewContext } from 'node:vm';
 import { registerBackground } from '../background.js';
 import { selectionStorageKey } from '../lib/selection.js';
 
@@ -253,8 +254,10 @@ test('navigation while opening the page summary discards the old request', async
   assert.equal(calls.writes.length, 0);
 });
 
-test('right-click uses inline SHOW and RESULT without opening panel or leaking API Key', async () => {
-  const settings = { apiKey: 'very-private-key', endpoint: 'https://api.example.test/chat/completions' };
+test('right-click sends the target language of the result without exposing provider settings', async () => {
+  const settings = {
+    apiKey: 'very-private-key', endpoint: 'https://api.example.test/chat/completions', targetLanguage: ' zh-CN ',
+  };
   const translated = [];
   const { api, calls } = fakeChrome({ settings });
   const router = registerBackground(api, {
@@ -268,8 +271,11 @@ test('right-click uses inline SHOW and RESULT without opening panel or leaking A
   const [show] = messages(calls, 'TRANSMATE_INLINE_SHOW');
   const [result] = messages(calls, 'TRANSMATE_INLINE_RESULT');
   assert.equal(show.message.text, 'Hello world');
-  assert.equal(result.message.translation, '你好，世界');
-  assert.equal(result.message.requestId, show.message.requestId);
+  assert.equal(show.message.keyboard, undefined);
+  assert.deepEqual(result.message, {
+    type: 'TRANSMATE_INLINE_RESULT', requestId: show.message.requestId,
+    translation: '你好，世界', targetLanguage: '简体中文',
+  });
   assert.deepEqual(show.options, { documentId: 'doc-17-2' });
   assert.deepEqual(result.options, show.options);
   assert.equal(translated[0].settings, settings);
@@ -280,6 +286,7 @@ test('right-click uses inline SHOW and RESULT without opening panel or leaking A
   assert.ok(Object.keys(calls.writes[0])[0].startsWith('inlineSelection:17:'));
   assert.equal(JSON.stringify(calls.writes).includes(settings.apiKey), false);
   assert.equal(JSON.stringify(calls.messages).includes(settings.apiKey), false);
+  assert.equal(JSON.stringify(calls.messages).includes(settings.endpoint), false);
 });
 
 test('shortcut reads the selected frame and translates in the existing inline card', async () => {
@@ -307,6 +314,7 @@ test('shortcut reads the selected frame and translates in the existing inline ca
   const [show] = messages(calls, 'TRANSMATE_INLINE_SHOW');
   const [result] = messages(calls, 'TRANSMATE_INLINE_RESULT');
   assert.equal(show.message.text, 'Hello shortcut');
+  assert.equal(show.message.keyboard, true);
   assert.deepEqual(show.options, { documentId: 'doc-17-3' });
   assert.equal(result.message.translation, '快捷键译文');
   assert.equal(result.message.requestId, show.message.requestId);
@@ -315,6 +323,31 @@ test('shortcut reads the selected frame and translates in the existing inline ca
   assert.equal(translated[0].settings, settings);
   assert.deepEqual(calls.opens, []);
   assert.equal(JSON.stringify(calls.messages).includes(settings.apiKey), false);
+});
+
+test('shortcut can read the original input when the inline card still has focus', async () => {
+  const host = {};
+  class Input {}
+  const input = Object.assign(new Input(), {
+    type: 'text', isConnected: true, value: 'before selected after', selectionStart: 7, selectionEnd: 15,
+  });
+  const { api, calls } = fakeChrome({
+    selectionResults: ({ func }) => [{
+      frameId: 0, documentId: 'doc-17-0',
+      result: runInNewContext(`(${func})()`, {
+        document: { activeElement: host, hasFocus: () => true },
+        window: { getSelection: () => null },
+        HTMLInputElement: Input, HTMLTextAreaElement: class {}, HTMLIFrameElement: class {},
+        __transmateInlineTranslation: { host, previousFocus: input },
+      }),
+    }],
+  });
+  const router = registerBackground(api, { translateImpl: async ({ text }) => `译文:${text}` });
+
+  await router.onCommand('translate-selection', tab());
+
+  assert.equal(messages(calls, 'TRANSMATE_INLINE_SHOW')[0].message.text, 'selected');
+  assert.equal(messages(calls, 'TRANSMATE_INLINE_RESULT')[0].message.translation, '译文:selected');
 });
 
 test('shortcut finds the active tab when Chrome omits the onCommand tab argument', async () => {
@@ -364,6 +397,7 @@ test('shortcut with no selection shows a hint without calling the provider', asy
   const [show] = messages(calls, 'TRANSMATE_INLINE_SHOW');
   const [result] = messages(calls, 'TRANSMATE_INLINE_RESULT');
   assert.equal(show.message.text, '');
+  assert.equal(show.message.keyboard, true);
   assert.equal(result.message.requestId, show.message.requestId);
   assert.equal(result.message.error, '请先选中文字，再按快捷键翻译。');
   assert.equal(translations, 0);
@@ -587,13 +621,19 @@ test('only matching sender may retry or open options, and retry gets a new ID', 
   assert.equal(calls.options, 1);
 });
 
-test('retry restores the selected text after the service worker loses memory', async () => {
-  const { api, calls, sessionState } = fakeChrome();
+test('retry restores the text after worker restart and labels the result with its current target', async () => {
+  const { api, calls, sessionState } = fakeChrome({
+    selectionResults: [{ frameId: 0, documentId: 'doc-17-0', result: { text: 'Persisted text', focused: true } }],
+  });
+  let settings = { targetLanguage: 'en' };
+  api.storage.local.get = async () => ({ settings });
   const firstWorker = registerBackground(api, { translateImpl: async () => '第一次译文' });
-  await firstWorker.onClicked(selected('Persisted text'), tab());
+  await firstWorker.onCommand('translate-selection', tab());
   const firstId = firstWorker.activeByTab.get(17).requestId;
   assert.ok(Object.keys(sessionState).some((key) => key.endsWith(firstId)));
+  assert.equal(messages(calls, 'TRANSMATE_INLINE_RESULT')[0].message.targetLanguage, '英语');
 
+  settings = { targetLanguage: 'Brazilian Portuguese' };
   const restartedWorker = registerBackground(api, { translateImpl: async ({ text }) => `重试:${text}` });
   assert.equal(restartedWorker.activeByTab.size, 0);
   await restartedWorker.onMessage({ type: 'TRANSMATE_INLINE_RETRY', requestId: firstId }, sender());
@@ -601,8 +641,10 @@ test('retry restores the selected text after the service worker loses memory', a
   const latest = shows.at(-1).message;
   assert.equal(latest.text, 'Persisted text');
   assert.equal(latest.retryOf, firstId);
+  assert.equal(latest.keyboard, undefined);
   assert.notEqual(latest.requestId, firstId);
   assert.equal(messages(calls, 'TRANSMATE_INLINE_RESULT').at(-1).message.translation, '重试:Persisted text');
+  assert.equal(messages(calls, 'TRANSMATE_INLINE_RESULT').at(-1).message.targetLanguage, 'Brazilian Portuguese');
   assert.equal(Object.keys(sessionState).some((key) => key.endsWith(firstId)), false);
   assert.equal(calls.opens.length, 0);
 });

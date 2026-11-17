@@ -7,10 +7,28 @@ const INLINE_TIMEOUT_MS = 25_000;
 const INLINE_SCRIPT = 'content-script.js';
 const INLINE_SESSION_PREFIX = 'inlineSelection:';
 const SHORTCUT_HINT = '请先选中文字，再按快捷键翻译。';
+const languageNames = new Intl.DisplayNames('zh-CN', { type: 'language', fallback: 'none' });
+
+function displayTargetLanguage(value) {
+  if (typeof value !== 'string') return '';
+  const language = value.trim();
+  if (!language) return '';
+  if (language === 'zh-CN') return '简体中文';
+  if (language === 'zh-TW') return '繁体中文';
+  try {
+    return languageNames.of(language) || language;
+  } catch {
+    return language;
+  }
+}
 
 // chrome.scripting serializes this function and runs it inside each frame.
 function readSelectionInFrame() {
-  const active = document.activeElement;
+  const focusedElement = document.activeElement;
+  const inline = globalThis.__transmateInlineTranslation;
+  // The last card can still hold focus when the next shortcut reads the frame.
+  const active = focusedElement === inline?.host && inline.previousFocus?.isConnected
+    ? inline.previousFocus : focusedElement;
   const focused = document.hasFocus() && !(active instanceof HTMLIFrameElement);
   if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
     if (active instanceof HTMLInputElement && active.type === 'password') return { text: '', focused };
@@ -181,11 +199,12 @@ export function registerBackground(chromeApi, {
     }).catch(() => console.warn('无法清理过期选文'));
   }
 
-  async function show(entry, retryOf) {
+  async function show(entry, { retryOf, keyboard = false } = {}) {
     const response = await send(entry, {
       type: 'TRANSMATE_INLINE_SHOW', requestId: entry.requestId, text: entry.text,
       order: entry.order, ...(entry.notice ? { notice: true } : {}),
       ...(retryOf ? { retryOf } : {}),
+      ...(keyboard ? { keyboard: true } : {}),
     });
     if (response?.ok !== true) throw new Error('无法显示翻译浮层');
     entry.shown = true;
@@ -219,21 +238,23 @@ export function registerBackground(chromeApi, {
 
     let result;
     try {
-      const translation = await Promise.race([
+      const completion = await Promise.race([
         (async () => {
           const { settings } = await chromeApi.storage.local.get('settings');
           if (!current(entry) || controller.signal.aborted) return null;
-          return translateImpl({
+          const targetLanguage = displayTargetLanguage(settings?.targetLanguage);
+          const translation = await translateImpl({
             text: entry.text,
             settings,
             permissionsApi: chromeApi.permissions,
             signal: controller.signal,
           });
+          return { translation, ...(targetLanguage ? { targetLanguage } : {}) };
         })(),
         interrupted,
       ]);
-      if (translation === null) return;
-      result = { type: 'TRANSMATE_INLINE_RESULT', requestId: entry.requestId, translation };
+      if (!completion || completion.translation === null) return;
+      result = { type: 'TRANSMATE_INLINE_RESULT', requestId: entry.requestId, ...completion };
     } catch (error) {
       const message = timedOut
         ? `等待翻译超过 ${Math.ceil(timeoutMs / 1000)} 秒，请重试。`
@@ -272,7 +293,7 @@ export function registerBackground(chromeApi, {
     entry.documentId = frame.documentId;
   }
 
-  async function startInline({ text, frameId = 0, documentId, notice = false }, tab, order) {
+  async function startInline({ text, frameId = 0, documentId, notice = false, keyboard = false }, tab, order) {
     const tabId = tab.id;
     const windowId = tab.windowId;
     if (!intentCurrent(tabId, order)) return;
@@ -296,7 +317,7 @@ export function registerBackground(chromeApi, {
         cancel(entry, { hide: true });
         return;
       }
-      await show(entry);
+      await show(entry, { keyboard });
       if (!current(entry) || !intentCurrent(tabId, order)) return;
       if (notice) {
         await send(entry, {
@@ -372,10 +393,10 @@ export function registerBackground(chromeApi, {
     if (chosen) {
       await startInline({
         text: chosen.result.text.trim(), frameId: chosen.frameId,
-        documentId: chosen.documentId,
+        documentId: chosen.documentId, keyboard: true,
       }, tab, order);
     } else {
-      await startInline({ text: '', notice: true }, tab, order);
+      await startInline({ text: '', notice: true, keyboard: true }, tab, order);
     }
   }
 
@@ -432,7 +453,7 @@ export function registerBackground(chromeApi, {
       };
       activeByTab.set(entry.tabId, retry);
       try {
-        await show(retry, entry.requestId);
+        await show(retry, { retryOf: entry.requestId });
         if (!current(retry)) {
           send(retry, { type: 'TRANSMATE_INLINE_HIDE', requestId: retry.requestId }).catch(() => {});
           return;
