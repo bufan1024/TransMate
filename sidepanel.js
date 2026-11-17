@@ -1,9 +1,12 @@
+import { localizeDocument, message as localize } from './lib/i18n.js';
 import { DEFAULT_SETTINGS, TARGET_LANGUAGES, validateSettings } from "./lib/config.js";
 import { createPageSummaryPanel } from "./lib/page-summary-panel.js";
 import { compareSelections, selectionStorageKey, selectionStoragePrefix, selectionWindowIdFromKey, shouldAcceptSelection } from "./lib/selection.js";
 import { createHistoryPanel } from "./lib/history-panel.js";
 import { HISTORY_KEY, recordTranslation } from "./lib/translation-history.js";
 import { translate } from "./lib/translator.js";
+
+localizeDocument();
 
 const MAX_TEXT_LENGTH = 5000;
 const TRANSLATION_SETTING_KEYS = ["provider", "endpoint", "apiKey", "model", "targetLanguage", "prompt"];
@@ -77,7 +80,7 @@ function setComparisonMode(enabled) {
   elements.comparisonSource.hidden = !enabled;
   elements.comparisonSource.textContent = enabled ? elements.input.value : "";
   elements.comparison.setAttribute("aria-pressed", String(enabled));
-  elements.comparison.textContent = enabled ? "返回编辑" : "对照阅读";
+  elements.comparison.textContent = enabled ? localize('editOriginal', "返回编辑") : localize('readingComparison', "对照阅读");
 }
 
 function updateControls() {
@@ -85,7 +88,7 @@ function updateControls() {
   const ready = Boolean(normalizedSettings(effectiveTarget()));
   const busy = Boolean(activeRequest);
   const focused = document.activeElement;
-  elements.count.textContent = `${length.toLocaleString("zh-CN")} 字`;
+  elements.count.textContent = localize('characterCount', `${length.toLocaleString("zh-CN")} 字`, length.toLocaleString("zh-CN"));
   elements.count.style.color = length > MAX_TEXT_LENGTH ? "#9e3524" : "";
   elements.clear.disabled = length === 0;
   const consumingSelection = Boolean(pendingSelection || consumingSelectionId);
@@ -101,13 +104,13 @@ function updateControls() {
   elements.comparison.hidden = !translation;
   const defaultTarget = typeof settings.targetLanguage === "string" ? settings.targetLanguage.trim() : "";
   const defaultName = TARGET_LANGUAGES.find(({ id }) => id === defaultTarget)?.name || defaultTarget;
-  elements.defaultTarget.textContent = defaultName ? `${defaultName}（默认）` : "设置中的默认语言";
+  elements.defaultTarget.textContent = defaultName ? localize('defaultNamedLanguage', `${defaultName}（默认）`, defaultName) : localize('defaultLanguage', "设置中的默认语言");
   elements.handoffTarget.hidden = !legacyTarget;
   elements.handoffTarget.value = legacyTarget?.targetLanguageId || "";
   elements.handoffTarget.textContent = legacyTarget?.targetLanguage || "";
   if (elements.target.value !== temporaryTarget) elements.target.value = temporaryTarget;
   elements.banner.hidden = ready;
-  elements.bannerMessage.textContent = "先配置 AI 服务，即可开始翻译。";
+  elements.bannerMessage.textContent = localize('configureFirstBanner', "先配置 AI 服务，即可开始翻译。");
   if (busy && (focused === elements.translate || focused === elements.retry)) elements.stop.focus();
   if (!busy && focused === elements.stop) {
     (elements.translate.disabled ? elements.input : elements.translate).focus();
@@ -121,7 +124,7 @@ function showResult(kind, value = "") {
   elements.result.hidden = kind !== "success";
   elements.error.hidden = kind !== "error";
   elements.state.textContent = {
-    empty: "等待输入", loading: "翻译中", stopped: "已停止", success: "已完成", error: "遇到问题",
+    empty: localize('waitingForInput', "等待输入"), loading: localize('inProgress', "翻译中"), stopped: localize('stopped', "已停止"), success: localize('complete', "已完成"), error: localize('errorState', "遇到问题"),
   }[kind];
   if (kind === "success") elements.result.textContent = value;
   if (kind === "error") elements.errorMessage.textContent = value;
@@ -142,14 +145,14 @@ function invalidateTranslation(kind = "empty") {
   translation = "";
   if (kind !== "stopped") currentText = "";
   elements.result.textContent = "";
-  elements.copyLabel.textContent = "复制译文";
+  elements.copyLabel.textContent = localize('copyTranslation', "复制译文");
   showResult(kind);
 }
 
 function errorMessage(error) {
   const message = error?.message || String(error);
-  if (error?.name === "AbortError") return "翻译已取消。";
-  if (/permission|host|access|fetch|network/i.test(message)) return "无法连接到 AI 服务。请检查接口地址、网络和网站访问权限。";
+  if (error?.name === "AbortError") return localize('translationCancelled', "翻译已取消。");
+  if (/permission|host|access|fetch|network/i.test(message)) return localize('serviceNetworkError', "无法连接到 AI 服务。请检查接口地址、网络和网站访问权限。");
   return message;
 }
 
@@ -158,13 +161,13 @@ async function runTranslation(text) {
   const trimmed = text.trim();
   if (!trimmed) return;
   if (trimmed.length > MAX_TEXT_LENGTH) {
-    showResult("error", `原文超过 ${MAX_TEXT_LENGTH.toLocaleString("zh-CN")} 字，请缩短后重试。`);
+    showResult("error", localize('inputTooLong', `原文超过 ${MAX_TEXT_LENGTH.toLocaleString("zh-CN")} 字，请缩短后重试。`, MAX_TEXT_LENGTH.toLocaleString("zh-CN")));
     return;
   }
   const config = normalizedSettings(effectiveTarget());
   if (!config) {
     elements.banner.hidden = false;
-    showResult("error", "请先在设置中填写 AI 服务、模型和 API Key。");
+    showResult("error", localize('openConfiguredService', "请先在设置中填写 AI 服务、模型和 API Key。"));
     return;
   }
 
@@ -178,7 +181,7 @@ async function runTranslation(text) {
   activeRequest = { controller, timeoutId };
   currentText = trimmed;
   translation = "";
-  elements.copyLabel.textContent = "复制译文";
+  elements.copyLabel.textContent = localize('copyTranslation', "复制译文");
   showResult("loading");
   updateControls();
 
@@ -192,7 +195,7 @@ async function runTranslation(text) {
     }).catch(() => {});
   } catch (error) {
     if (thisRequest !== requestNumber) return;
-    if (timedOut) showResult("error", "连接超时（45 秒）。请检查服务状态后重试。");
+    if (timedOut) showResult("error", localize('sidePanelConnectionTimeout', "连接超时（45 秒）。请检查服务状态后重试。"));
     else if (error?.name !== "AbortError") showResult("error", errorMessage(error));
   } finally {
     clearTimeout(timeoutId);
@@ -268,7 +271,7 @@ function consumePendingSelection() {
     }
   }).catch(() => {
     if (pendingSelection?.id === selected.id) {
-      showResult("error", "无法清理选文状态。请编辑原文后再手动翻译。");
+      showResult("error", localize('pendingSelectionError', "无法清理选文状态。请编辑原文后再手动翻译。"));
     }
   }).finally(() => {
     if (consumingSelectionId === selected.id) consumingSelectionId = null;
@@ -285,7 +288,7 @@ elements.input.addEventListener("input", () => {
   consumingSelectionId = null;
   invalidateTranslation();
   if (elements.input.value.length > MAX_TEXT_LENGTH) {
-    showResult("error", `原文超过 ${MAX_TEXT_LENGTH.toLocaleString("zh-CN")} 字，请缩短后重试。`);
+    showResult("error", localize('inputTooLong', `原文超过 ${MAX_TEXT_LENGTH.toLocaleString("zh-CN")} 字，请缩短后重试。`, MAX_TEXT_LENGTH.toLocaleString("zh-CN")));
   }
   updateControls();
 });
@@ -329,12 +332,12 @@ elements.copy.addEventListener("click", async () => {
   try {
     await navigator.clipboard.writeText(translation);
     if (copiedRequest !== requestNumber) return;
-    elements.copyLabel.textContent = "已复制";
+    elements.copyLabel.textContent = localize('copied', "已复制");
     setTimeout(() => {
-      if (copiedRequest === requestNumber) elements.copyLabel.textContent = "复制译文";
+      if (copiedRequest === requestNumber) elements.copyLabel.textContent = localize('copyTranslation', "复制译文");
     }, 1800);
   } catch {
-    if (copiedRequest === requestNumber) elements.copyLabel.textContent = "复制失败";
+    if (copiedRequest === requestNumber) elements.copyLabel.textContent = localize('copyFailed', "复制失败");
   }
 });
 document.querySelector("#open-settings").addEventListener("click", openSettings);
@@ -406,7 +409,7 @@ async function initialize() {
     queuedSelections.clear();
     consumePendingSelection();
   } catch (error) {
-    showResult("error", `无法读取扩展设置：${errorMessage(error)}`);
+    showResult("error", localize('extensionSettingsError', `无法读取扩展设置：${errorMessage(error)}`, errorMessage(error)));
   }
 }
 

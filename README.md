@@ -2,6 +2,8 @@
 
 一个自带 AI 服务配置的 Chrome 划词翻译扩展。当前版本使用 Manifest V3，面向 Chrome 116 及以上版本。
 
+界面支持简体中文和英语，跟随 Chrome 的界面语言。目标翻译语言由扩展设置决定。
+
 ## 安装与使用
 
 1. 打开 Chrome 的 `chrome://extensions`，开启右上角的「开发者模式」。

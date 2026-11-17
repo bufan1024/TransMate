@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -323,6 +323,9 @@ await cp(extensionDir, testExtensionDir, {
 });
 const testManifestPath = join(testExtensionDir, 'manifest.json');
 const testManifest = JSON.parse(await readFile(testManifestPath, 'utf8'));
+// The existing flow assertions exercise the default Chinese messages.
+const englishMessages = await readFile(join(testExtensionDir, '_locales/en/messages.json'));
+await rm(join(testExtensionDir, '_locales/en'), { recursive: true });
 testManifest.host_permissions = [...new Set([
   ...(testManifest.host_permissions || []),
   'http://127.0.0.1/*',
@@ -1086,6 +1089,43 @@ try {
   await articlePage.mouse.wheel(0, distanceToChanged);
   await pageStatus.getByText('网页正文已变动，请重新启动翻译。').waitFor({ timeout: 6000 });
   assert.equal(requests.length, beforeChangedViewport, '正文原位变动后不得发送已经过期的段落');
+
+  const englishExtension = join(tempDir, 'extension-en');
+  await cp(testExtensionDir, englishExtension, { recursive: true });
+  await mkdir(join(englishExtension, '_locales/en'), { recursive: true });
+  await writeFile(join(englishExtension, '_locales/en/messages.json'), englishMessages);
+  await rm(join(englishExtension, '_locales/zh_CN'), { recursive: true });
+  await writeFile(join(englishExtension, 'manifest.json'), JSON.stringify({ ...testManifest, default_locale: 'en' }));
+  const englishContext = await chromium.launchPersistentContext(join(tempDir, 'profile-en'), {
+    ...browserOptions, args: [
+      '--disable-extensions-except=' + englishExtension, '--load-extension=' + englishExtension,
+    ],
+  });
+  try {
+    const englishWorker = englishContext.serviceWorkers()[0] ||
+      await englishContext.waitForEvent('serviceworker', { timeout: 10000 });
+    const extensionOrigin = 'chrome-extension://' + new URL(englishWorker.url()).host;
+    assert.equal(await englishWorker.evaluate(() => chrome.runtime.getManifest().name), 'TransMate · AI Translation');
+    const englishSettings = await englishContext.newPage();
+    await englishSettings.goto(extensionOrigin + '/options.html');
+    await englishSettings.getByRole('button', { name: 'Test connection' }).waitFor();
+    assert.equal(await englishSettings.locator('html').getAttribute('lang'), 'en');
+    const englishPanel = await englishContext.newPage();
+    await englishPanel.goto(extensionOrigin + '/sidepanel.html');
+    await englishPanel.getByRole('textbox', { name: 'Text to translate' }).waitFor();
+    await englishPanel.getByRole('button', { name: 'Translate', exact: true }).waitFor();
+    const englishArticle = await englishContext.newPage();
+    await englishArticle.goto(inlineUrl);
+    const englishTab = await englishWorker.evaluate(async (url) =>
+      (await chrome.tabs.query({})).find((candidate) => candidate.url === url)?.id, inlineUrl);
+    const englishSelection = await selectFixtureText(englishArticle, 'inline-first');
+    await triggerContextMenu(englishWorker, englishTab, 'translate-selection', englishSelection);
+    const englishCard = englishArticle.getByRole('dialog', { name: 'TransMate selection translation' });
+    await englishCard.getByRole('button', { name: 'Close translation' }).waitFor();
+    await englishCard.locator('.error').filter({ hasText: 'Enter valid translation settings.' }).waitFor();
+  } finally {
+    await englishContext.close();
+  }
 
   console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、临时目标语言、停止翻译、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译和网页重点总结');
   console.log('Mock POST requests: ' + requests.map((item) => item.text).join(', '));

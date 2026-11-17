@@ -1,0 +1,916 @@
+{
+  "aboutTransMate": {
+    "message": "TransMate 介绍"
+  },
+  "aboutYourData": {
+    "message": "关于你的数据"
+  },
+  "actionTitle": {
+    "message": "打开 TransMate"
+  },
+  "aiService": {
+    "message": "AI 服务"
+  },
+  "apiKeyControlCharacters": {
+    "message": "API Key 不能包含控制字符。"
+  },
+  "authorizedDomains": {
+    "message": "已授权域名"
+  },
+  "authorizedServiceDomains": {
+    "message": "已授权的服务域名"
+  },
+  "cancelConnectionCheck": {
+    "message": "取消检测"
+  },
+  "cancelSummary": {
+    "message": "取消总结"
+  },
+  "cancelTranslation": {
+    "message": "取消翻译"
+  },
+  "cannotCheckGrant": {
+    "message": "无法确认服务域名授权，请重新点击保存并允许授权。"
+  },
+  "cannotDisplayCard": {
+    "message": "无法显示翻译浮层"
+  },
+  "cannotInjectCard": {
+    "message": "无法注入翻译浮层"
+  },
+  "cannotReadPage": {
+    "message": "无法读取当前网页的正文，请刷新页面后重试。"
+  },
+  "cannotShowTranslation": {
+    "message": "无法显示译文，请重试。"
+  },
+  "cardAriaLabel": {
+    "message": "TransMate 划词翻译"
+  },
+  "cardRestartError": {
+    "message": "无法重新发起翻译，请稍后重试。"
+  },
+  "cardTimeout": {
+    "message": "等待翻译超过 $ARG1$ 秒，请重试。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "cardWaitTimeout": {
+    "message": "翻译等待超时，请重试。"
+  },
+  "changedEndpointKey": {
+    "message": "服务或接口已更改，请填写新的 API Key。"
+  },
+  "characterCount": {
+    "message": "$ARG1$ 字",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseService": {
+    "message": "选择服务"
+  },
+  "chooseServiceModel": {
+    "message": "选择服务与模型"
+  },
+  "clear": {
+    "message": "清空"
+  },
+  "clearHistory": {
+    "message": "清空历史"
+  },
+  "clearKeyFailed": {
+    "message": "清除密钥失败，请检查浏览器存储后重试。"
+  },
+  "clearSavedKey": {
+    "message": "清除已保存密钥"
+  },
+  "clearedKey": {
+    "message": "已清除本机保存的密钥和当前输入。"
+  },
+  "clearedKeyCleanupFailed": {
+    "message": "密钥已清除，但服务域名权限未能撤销。请在下方列表中手动处理。"
+  },
+  "close": {
+    "message": "关闭"
+  },
+  "closeTranslation": {
+    "message": "关闭翻译"
+  },
+  "collapseOriginal": {
+    "message": "收起原文"
+  },
+  "commandPage": {
+    "message": "整页双语翻译"
+  },
+  "commandSelection": {
+    "message": "翻译当前选中文字"
+  },
+  "commandSummary": {
+    "message": "总结网页重点"
+  },
+  "complete": {
+    "message": "已完成"
+  },
+  "configureFirstBanner": {
+    "message": "先配置 AI 服务，即可开始翻译。"
+  },
+  "confirmReset": {
+    "message": "确定重置全部配置、清除密钥并撤销已授权域名吗？"
+  },
+  "connectAI": {
+    "message": "连接你的 AI 服务"
+  },
+  "connectionCheckCancelled": {
+    "message": "连接检测已取消。"
+  },
+  "connectionDetails": {
+    "message": "连接信息"
+  },
+  "connectionDraftChanged": {
+    "message": "配置已修改，连接检测已取消。请重新检测。"
+  },
+  "connectionFailed": {
+    "message": "连接检测失败：$ARG1$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectionRetry": {
+    "message": "请检查配置后重试。"
+  },
+  "connectionSuccess": {
+    "message": "连接正常，已收到有效译文（$ARG1$ 秒）。示例译文：「$ARG2$」。检测本身不会保存配置。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "connectionTimeout": {
+    "message": "连接检测超时（$ARG1$ 秒），请检查服务状态后重试。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "copied": {
+    "message": "已复制"
+  },
+  "copyFailed": {
+    "message": "复制失败"
+  },
+  "copySummary": {
+    "message": "复制总结"
+  },
+  "copyTranslation": {
+    "message": "复制译文"
+  },
+  "couldNotConfirmRevoke": {
+    "message": "无法确认撤销结果，请重新打开设置页检查授权列表。"
+  },
+  "currentSelectionOnly": {
+    "message": "仅对当前划词生效"
+  },
+  "customInstructions": {
+    "message": "自定义翻译要求"
+  },
+  "customInstructionsHelp": {
+    "message": "这段要求会附加到翻译指令中。无需重复填写目标语言。"
+  },
+  "customInstructionsPlaceholder": {
+    "message": "例如：保留专业术语，语气简洁自然。"
+  },
+  "customProvider": {
+    "message": "自定义"
+  },
+  "defaultChinese": {
+    "message": "简体中文（默认）"
+  },
+  "defaultLanguage": {
+    "message": "设置中的默认语言"
+  },
+  "defaultNamedLanguage": {
+    "message": "$ARG1$（默认）",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "delete": {
+    "message": "删除"
+  },
+  "deleteHistoryEntry": {
+    "message": "删除此条翻译历史"
+  },
+  "earlyStreamEnd": {
+    "message": "AI 服务的流式响应提前结束，请重试。"
+  },
+  "editOriginal": {
+    "message": "返回编辑"
+  },
+  "emptyCount": {
+    "message": "0 字"
+  },
+  "emptyHistory": {
+    "message": "暂无翻译历史。"
+  },
+  "emptyTranslation": {
+    "message": "好文字，值得被读懂。"
+  },
+  "emptyTranslationHelp": {
+    "message": "翻译结果会出现在这里"
+  },
+  "endpointForbiddenData": {
+    "message": "接口地址不能包含控制字符、查询参数或片段。"
+  },
+  "endpointHTTPS": {
+    "message": "接口地址必须使用 HTTPS；仅 localhost 和 127.0.0.1 可使用 HTTP。"
+  },
+  "endpointHelp": {
+    "message": "填写完整的 Chat Completions 接口地址。仅本机服务可使用 HTTP。"
+  },
+  "endpointInvalid": {
+    "message": "接口地址不是有效 URL。"
+  },
+  "endpointLabel": {
+    "message": "接口地址"
+  },
+  "endpointNoCredentials": {
+    "message": "接口地址不能包含账号、密码、查询参数或片段。"
+  },
+  "endpointRequired": {
+    "message": "请填写完整的 Chat Completions 接口地址。"
+  },
+  "errorState": {
+    "message": "遇到问题"
+  },
+  "expandOriginal": {
+    "message": "展开原文"
+  },
+  "extensionDescription": {
+    "message": "划词翻译、整页双语和网页重点总结，可自定义 AI 服务。"
+  },
+  "extensionName": {
+    "message": "TransMate · AI 翻译"
+  },
+  "extensionSettingsError": {
+    "message": "无法读取扩展设置：$ARG1$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "fetchFailed": {
+    "message": "网络请求失败，请检查接口地址、网络连接和代理设置后重试。"
+  },
+  "forbiddenProvider": {
+    "message": "$ARG1$访问被拒绝，请检查 API Key、账户和模型权限。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "gettingStarted": {
+    "message": "使用步骤"
+  },
+  "grantChanged": {
+    "message": "服务域名授权已变化，请重新点击保存并允许授权。"
+  },
+  "heroFirst": {
+    "message": "把翻译，"
+  },
+  "heroSecondLead": {
+    "message": "交给"
+  },
+  "heroSecondStrong": {
+    "message": "你选择"
+  },
+  "heroThird": {
+    "message": "的 AI。"
+  },
+  "history": {
+    "message": "翻译历史"
+  },
+  "historyDisabled": {
+    "message": "记录已关闭。"
+  },
+  "historyEntries": {
+    "message": "历史记录"
+  },
+  "historyLockError": {
+    "message": "无法安全更新本机翻译历史。"
+  },
+  "historyUpdateError": {
+    "message": "无法更新本机历史，请重试。"
+  },
+  "httpStatusUnknown": {
+    "message": "HTTP 状态未知"
+  },
+  "inProgress": {
+    "message": "翻译中"
+  },
+  "inputTooLong": {
+    "message": "原文超过 $ARG1$ 字，请缩短后重试。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "invalidCompletion": {
+    "message": "翻译服务返回 $ARG1$，但响应不是有效的 Chat Completions JSON；请检查接口地址和服务兼容性。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "invalidConnectionTimeout": {
+    "message": "连接检测超时时间无效。"
+  },
+  "invalidPrompt": {
+    "message": "自定义提示词必须是文本。"
+  },
+  "invalidProvider": {
+    "message": "请选择有效的 AI 服务。"
+  },
+  "invalidSettings": {
+    "message": "请提供有效的翻译设置。"
+  },
+  "invalidStream": {
+    "message": "AI 服务返回的流式响应格式有误，请重试或更换模型。"
+  },
+  "keyNeeded": {
+    "message": "请填写当前服务的 API Key；留空只可沿用同一服务和完整接口地址的已保存密钥。"
+  },
+  "langChineseSimplified": {
+    "message": "简体中文"
+  },
+  "langChineseTraditional": {
+    "message": "繁体中文"
+  },
+  "langEnglish": {
+    "message": "英语"
+  },
+  "langFrench": {
+    "message": "法语"
+  },
+  "langGerman": {
+    "message": "德语"
+  },
+  "langJapanese": {
+    "message": "日语"
+  },
+  "langKorean": {
+    "message": "韩语"
+  },
+  "langSpanish": {
+    "message": "西班牙语"
+  },
+  "loading": {
+    "message": "正在读取…"
+  },
+  "loadingSettings": {
+    "message": "正在读取已保存配置…"
+  },
+  "localKeyHelp": {
+    "message": "已保存的密钥不会回填。切换服务或接口后，请填写新密钥。"
+  },
+  "localKeysAndPermissions": {
+    "message": "本机凭据与授权"
+  },
+  "locale": {
+    "message": "zh-CN"
+  },
+  "missingCompletion": {
+    "message": "翻译服务返回 $ARG1$，但未返回有效$ARG2$；请确认模型支持 Chat Completions 响应格式。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "missingProviderModel": {
+    "message": "$ARG1$接口地址或模型未找到，请核对 Chat Completions 地址和模型 ID。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "missingSavedKey": {
+    "message": "尚无已保存的密钥，请填写 API Key。"
+  },
+  "modelIdLabel": {
+    "message": "模型 ID"
+  },
+  "modelName": {
+    "message": "模型名称"
+  },
+  "newApiKey": {
+    "message": "填写新的 API Key"
+  },
+  "noGrantedOrigins": {
+    "message": "当前没有已授权的服务域名。"
+  },
+  "noKeyToClear": {
+    "message": "当前没有已保存的 API Key。"
+  },
+  "noNetwork": {
+    "message": "当前环境不支持网络请求。"
+  },
+  "noPageText": {
+    "message": "此页面没有可处理的正文。"
+  },
+  "noProcessablePageText": {
+    "message": "当前网页没有可处理的文字。"
+  },
+  "noReadableText": {
+    "message": "当前网页没有可读取的正文。"
+  },
+  "openConfiguredService": {
+    "message": "请先在设置中填写 AI 服务、模型和 API Key。"
+  },
+  "openInSidePanel": {
+    "message": "在侧栏打开"
+  },
+  "openSettings": {
+    "message": "去设置"
+  },
+  "openSettingsIcon": {
+    "message": "打开设置"
+  },
+  "opening": {
+    "message": "正在打开…"
+  },
+  "optional": {
+    "message": "可选"
+  },
+  "originAlreadyRevoked": {
+    "message": "该域名已没有授权，列表已刷新。"
+  },
+  "pageActionEnded": {
+    "message": "此页面操作已结束。"
+  },
+  "pageCancelled": {
+    "message": "网页处理已取消。"
+  },
+  "pageChanged": {
+    "message": "网页正文已变动，请重新启动翻译。"
+  },
+  "pageHighlights": {
+    "message": "网页重点"
+  },
+  "pageLimit": {
+    "message": "已达到网页内容上限。"
+  },
+  "pageSummaryMenu": {
+    "message": "总结网页重点"
+  },
+  "pageTranslateMenu": {
+    "message": "整页双语翻译"
+  },
+  "pageTranslatedCount": {
+    "message": "已翻译 $ARG1$ 段。$ARG2$$ARG3$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      },
+      "arg3": {
+        "content": "$3"
+      }
+    }
+  },
+  "pageTranslationEnded": {
+    "message": "此页面翻译已结束。"
+  },
+  "pageTranslationFailed": {
+    "message": "网页翻译失败，请重试。"
+  },
+  "pageTranslationInvalid": {
+    "message": "AI 服务未返回完整的逐段译文，请重试或更换模型。"
+  },
+  "pageTranslationProgress": {
+    "message": "正在翻译正文（$ARG1$ / $ARG2$ 段）…",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "pageTranslationProgress2": {
+    "message": "正在翻译正文（$ARG1$ / $ARG2$ 段）…",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "panelHeroEnd": {
+    "message": "更近一点。"
+  },
+  "panelHeroStart": {
+    "message": "让文字，"
+  },
+  "panelIntro": {
+    "message": "选中网页文字，右键点“用 TransMate 翻译”；也可以在这里直接输入。"
+  },
+  "panelLanguageScope": {
+    "message": "临时选择仅在当前侧栏生效。"
+  },
+  "panelTitle": {
+    "message": "TransMate · 翻译"
+  },
+  "pendingSelectionError": {
+    "message": "无法清理选文状态。请编辑原文后再手动翻译。"
+  },
+  "permissionReadError": {
+    "message": "无法读取已授权域名，请重新打开设置页。"
+  },
+  "permissionRevokeError": {
+    "message": "撤销失败，请检查浏览器权限并重试。"
+  },
+  "privateSettingsUnavailable": {
+    "message": "无法保护本机配置"
+  },
+  "providerHttpPrefix": {
+    "message": "翻译服务返回 $ARG1$：",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "providerPermissionMissing": {
+    "message": "缺少 AI 服务的网站访问权限，请在设置页重新保存配置并允许授权。"
+  },
+  "providerPermissionUnknown": {
+    "message": "无法确认 AI 服务的网站访问权限，请在设置页重新保存配置并授权。"
+  },
+  "providerPrivacy": {
+    "message": "文字仅发送至你配置的 AI 服务"
+  },
+  "rateLimited": {
+    "message": "$ARG1$请求过于频繁或额度不足，请稍后重试并检查配额。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "readPageError": {
+    "message": "无法读取当前网页。请在普通网页上重试。"
+  },
+  "readingComparison": {
+    "message": "对照阅读"
+  },
+  "readingPage": {
+    "message": "正在读取网页正文…"
+  },
+  "recordLocally": {
+    "message": "在本机记录"
+  },
+  "removeTranslations": {
+    "message": "移除译文"
+  },
+  "requestFailed": {
+    "message": "$ARG1$请求未成功，请检查接口地址、模型 ID 和服务状态。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "requestingServiceOrigin": {
+    "message": "正在申请访问此 AI 服务的权限…"
+  },
+  "requiredField": {
+    "message": "请填写$ARG1$。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "resetAllSettings": {
+    "message": "重置全部配置"
+  },
+  "resetCleanupFailed": {
+    "message": "配置已重置，但部分域名权限未能撤销。请在下方列表中手动处理。"
+  },
+  "resultLengthLimit": {
+    "message": "AI 服务返回的$ARG1$因长度限制而中断，请使用输出上限更高的模型。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "retry": {
+    "message": "重试"
+  },
+  "retryOpeningPanel": {
+    "message": "重试打开侧栏"
+  },
+  "reuseKeyHelp": {
+    "message": "此服务已有保存的密钥；留空即可沿用。"
+  },
+  "revoke": {
+    "message": "撤销"
+  },
+  "revokeHelp": {
+    "message": "撤销当前服务的访问权限后，需重新保存或测试连接才能继续翻译。"
+  },
+  "revokeOriginFailed": {
+    "message": "撤销 $ARG1$ 失败，授权仍在。请重试或在 Chrome 扩展管理页处理。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "revokeOriginLabel": {
+    "message": "撤销 $ARG1$ 的访问权限",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "revokedOrigin": {
+    "message": "已撤销 $ARG1$ 的访问权限。需要时可重新保存或测试连接。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "savePermissionDenied": {
+    "message": "未获得该服务的访问权限。请允许访问后再保存。"
+  },
+  "saveSettings": {
+    "message": "保存配置"
+  },
+  "savedCleanupFailed": {
+    "message": "配置已保存，但旧域名权限未能撤销。请在下方授权列表中手动处理。"
+  },
+  "scrollForMore": {
+    "message": "继续滚动以翻译其他正文。"
+  },
+  "selectFirst": {
+    "message": "请先选中文字，再按快捷键翻译。"
+  },
+  "selectText": {
+    "message": "请选择需要翻译的文字。"
+  },
+  "selectionLimit": {
+    "message": "选中文字不能超过 $ARG1$ 个字符。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "selectionTranslation": {
+    "message": "划词翻译"
+  },
+  "serviceModelPlaceholder": {
+    "message": "填写服务支持的模型 ID"
+  },
+  "serviceNetworkError": {
+    "message": "无法连接到 AI 服务。请检查接口地址、网络和网站访问权限。"
+  },
+  "servicePresetsHelp": {
+    "message": "预设会填写接口地址。你仍可修改地址，或选择自定义 OpenAI 兼容接口。"
+  },
+  "serviceTimeout": {
+    "message": "AI 服务响应超时，请检查服务状态后重试。"
+  },
+  "settingsFooter": {
+    "message": "让阅读继续"
+  },
+  "settingsIntro": {
+    "message": "一个轻巧的网页阅读伙伴。选中文字，打开侧边栏，让熟悉的语言自然抵达。"
+  },
+  "settingsIntroDetails": {
+    "message": "按你的习惯配置翻译。保存后，在任何网页选中文字并通过右键菜单打开 TransMate。"
+  },
+  "settingsLockUnsupported": {
+    "message": "当前浏览器不支持安全的多页面设置操作，请升级 Chrome 后重试。"
+  },
+  "settingsPrivacyNote": {
+    "message": "API Key 保存在此浏览器的扩展本地存储中；翻译文本会发送给你选择的 AI 服务。测试连接会发送一小段示例文字。"
+  },
+  "settingsReadFailed": {
+    "message": "无法读取本机设置，请重新打开设置页。"
+  },
+  "settingsReset": {
+    "message": "本机配置和密钥已重置，已撤销授权域名。"
+  },
+  "settingsResetFailed": {
+    "message": "重置失败，原配置仍保留。请检查浏览器存储后重试。"
+  },
+  "settingsSaveError": {
+    "message": "保存失败，请检查浏览器存储和权限后重试。新申请的域名权限可能仍保留在下方列表中。"
+  },
+  "settingsSaved": {
+    "message": "配置已保存。现在可以在网页中选中文字开始翻译。"
+  },
+  "settingsTab": {
+    "message": "SETTINGS / 配置"
+  },
+  "settingsTitle": {
+    "message": "TransMate · 设置"
+  },
+  "sidePanelConnectionTimeout": {
+    "message": "连接超时（45 秒）。请检查服务状态后重试。"
+  },
+  "sidePanelOpenError": {
+    "message": "无法打开侧栏，请重试。"
+  },
+  "sourceLabel": {
+    "message": "需要翻译的文字"
+  },
+  "sourcePlaceholder": {
+    "message": "在网页上选中文字，或在这里粘贴内容…"
+  },
+  "sourceText": {
+    "message": "原文"
+  },
+  "startFromSelection": {
+    "message": "选中文字，开始翻译"
+  },
+  "startTranslation": {
+    "message": "开始翻译"
+  },
+  "stop": {
+    "message": "停止"
+  },
+  "stopTranslation": {
+    "message": "停止翻译"
+  },
+  "stopped": {
+    "message": "已停止"
+  },
+  "streamLengthLimit": {
+    "message": "AI 服务返回的译文因长度限制而中断，请使用输出上限更高的模型。"
+  },
+  "streamReadError": {
+    "message": "读取 AI 服务的流式响应失败，请检查网络连接后重试。"
+  },
+  "summarizingPage": {
+    "message": "正在总结网页重点…"
+  },
+  "summary": {
+    "message": "总结"
+  },
+  "summaryFailed": {
+    "message": "网页总结失败，请重试。"
+  },
+  "summaryLimit": {
+    "message": "已达到网页内容上限，总结仅涵盖已读取部分。"
+  },
+  "summarySectionTooLong": {
+    "message": "AI 返回的段落摘要过长，无法汇总，请重试或更换模型。"
+  },
+  "targetLanguage": {
+    "message": "目标语言"
+  },
+  "temporaryTarget": {
+    "message": "临时目标语言"
+  },
+  "testConnection": {
+    "message": "测试连接"
+  },
+  "testPermissionDenied": {
+    "message": "未获得该服务的访问权限。请允许访问后重试。"
+  },
+  "testSave": {
+    "message": "测试并保存配置"
+  },
+  "testingConnection": {
+    "message": "正在检测连接，将发送一小段示例文字；可点击「取消检测」。"
+  },
+  "translateAgain": {
+    "message": "重新翻译"
+  },
+  "translateInto": {
+    "message": "译为"
+  },
+  "translateSelectionMenu": {
+    "message": "用 TransMate 翻译"
+  },
+  "translateToLanguage": {
+    "message": "译为$ARG1$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "translating": {
+    "message": "正在翻译…"
+  },
+  "translatingAnnouncement": {
+    "message": "正在翻译。"
+  },
+  "translation": {
+    "message": "译文"
+  },
+  "translationCancelled": {
+    "message": "翻译已取消。"
+  },
+  "translationComplete": {
+    "message": "翻译完成。"
+  },
+  "translationContent": {
+    "message": "翻译内容"
+  },
+  "translationFailed": {
+    "message": "翻译失败，请重试。"
+  },
+  "translationPreferences": {
+    "message": "翻译偏好"
+  },
+  "translationProblem": {
+    "message": "暂时没能完成翻译"
+  },
+  "translationRetryLater": {
+    "message": "翻译失败，请稍后重试。"
+  },
+  "translationSettingsUpdated": {
+    "message": "翻译配置已更新，请重试。"
+  },
+  "translationStopped": {
+    "message": "翻译已停止"
+  },
+  "translationWorkspace": {
+    "message": "翻译工作区"
+  },
+  "typedKeyHelp": {
+    "message": "将使用新填写的密钥；保存后才写入本机。"
+  },
+  "unauthorizedProvider": {
+    "message": "$ARG1$认证失败，请检查 API Key 是否正确或已过期。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "upstreamTimeout": {
+    "message": "$ARG1$服务响应超时，请稍后重试并检查服务状态。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "upstreamUnavailable": {
+    "message": "$ARG1$AI 服务暂时异常，请稍后重试或查看服务状态。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "waitingForInput": {
+    "message": "等待输入"
+  },
+  "working": {
+    "message": "请稍候…"
+  },
+  "workingTranslation": {
+    "message": "正在斟酌字句…"
+  },
+  "wrongPageParagraphs": {
+    "message": "译文与网页段落不匹配，请重新翻译。"
+  }
+}

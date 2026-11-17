@@ -1,6 +1,9 @@
+import { localizeDocument, message as localize } from './lib/i18n.js';
 import { DEFAULT_SETTINGS, PROVIDERS, originPatternForEndpoint } from "./lib/config.js";
 import { checkConnection } from "./lib/connection-check.js";
 import { SettingsOperationError, canReuseSavedKey, persistSettings, resolveSettings, revokeGrantedOrigin, saveSettingsWithPermission, withSettingsLock } from "./lib/settings-management.js";
+
+localizeDocument();
 
 const form = document.querySelector("#settings-form");
 const providerList = document.querySelector("#provider-list");
@@ -64,10 +67,10 @@ function formSettings() {
 }
 
 function renderKeyStatus() {
-  if (apiKeyInput.value.trim()) keyStatus.textContent = "将使用新填写的密钥；保存后才写入本机。";
-  else if (canReuseSavedKey(formSettings(), savedSettings)) keyStatus.textContent = "此服务已有保存的密钥；留空即可沿用。";
-  else if (savedSettings?.apiKey) keyStatus.textContent = "服务或接口已更改，请填写新的 API Key。";
-  else keyStatus.textContent = "尚无已保存的密钥，请填写 API Key。";
+  if (apiKeyInput.value.trim()) keyStatus.textContent = localize('typedKeyHelp', "将使用新填写的密钥；保存后才写入本机。");
+  else if (canReuseSavedKey(formSettings(), savedSettings)) keyStatus.textContent = localize('reuseKeyHelp', "此服务已有保存的密钥；留空即可沿用。");
+  else if (savedSettings?.apiKey) keyStatus.textContent = localize('changedEndpointKey', "服务或接口已更改，请填写新的 API Key。");
+  else keyStatus.textContent = localize('missingSavedKey', "尚无已保存的密钥，请填写 API Key。");
   clearKeyButton.disabled = operationBusy || !savedSettings?.apiKey;
 }
 
@@ -91,7 +94,7 @@ function renderPermissions(origins) {
   if (!origins.length) {
     const empty = document.createElement("li");
     empty.className = "permission-empty";
-    empty.textContent = "当前没有已授权的服务域名。";
+    empty.textContent = localize('noGrantedOrigins', "当前没有已授权的服务域名。");
     permissionList.append(empty);
     return;
   }
@@ -102,8 +105,8 @@ function renderPermissions(origins) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "permission-revoke";
-    button.textContent = "撤销";
-    button.setAttribute("aria-label", `撤销 ${origin} 的访问权限`);
+    button.textContent = localize('revoke', "撤销");
+    button.setAttribute("aria-label", localize('revokeOriginLabel', `撤销 ${origin} 的访问权限`, origin));
     button.disabled = operationBusy;
     button.addEventListener("click", () => revokeOrigin(origin));
     item.append(label, button);
@@ -123,7 +126,7 @@ async function refreshPermissions() {
       permissionList.replaceChildren();
       const error = document.createElement("li");
       error.className = "permission-empty";
-      error.textContent = "无法读取已授权域名，请重新打开设置页。";
+      error.textContent = localize('permissionReadError', "无法读取已授权域名，请重新打开设置页。");
       permissionList.append(error);
     }
     return null;
@@ -137,12 +140,12 @@ async function revokeOrigin(origin) {
   try {
     const removed = await withSettingsLock(globalThis.navigator?.locks, () => revokeGrantedOrigin(origin, chrome.permissions));
     const origins = await refreshPermissions();
-    if (origins === null) showStatus("无法确认撤销结果，请重新打开设置页检查授权列表。", "error");
-    else if (origins.includes(origin)) showStatus(`撤销 ${origin} 失败，授权仍在。请重试或在 Chrome 扩展管理页处理。`, "error");
-    else if (removed) showStatus(`已撤销 ${origin} 的访问权限。需要时可重新保存或测试连接。`, "success");
-    else showStatus("该域名已没有授权，列表已刷新。", "working");
+    if (origins === null) showStatus(localize('couldNotConfirmRevoke', "无法确认撤销结果，请重新打开设置页检查授权列表。"), "error");
+    else if (origins.includes(origin)) showStatus(localize('revokeOriginFailed', `撤销 ${origin} 失败，授权仍在。请重试或在 Chrome 扩展管理页处理。`, origin), "error");
+    else if (removed) showStatus(localize('revokedOrigin', `已撤销 ${origin} 的访问权限。需要时可重新保存或测试连接。`, origin), "success");
+    else showStatus(localize('originAlreadyRevoked', "该域名已没有授权，列表已刷新。"), "working");
   } catch (error) {
-    showSettingsFailure(error, "撤销失败，请检查浏览器权限并重试。");
+    showSettingsFailure(error, localize('permissionRevokeError', "撤销失败，请检查浏览器权限并重试。"));
     await refreshPermissions();
   } finally {
     setBusy(false);
@@ -165,13 +168,13 @@ function setBusy(busy, mode = "save") {
   for (const field of form.querySelectorAll('input:not([type="hidden"]), textarea, select')) {
     field.disabled = busy && mode !== "test";
   }
-  saveButton.querySelector("span:first-child").textContent = busy && mode === "save" ? "请稍候…" : "保存配置";
-  testButton.querySelector(".test-label").textContent = busy && mode === "test" ? "取消检测" : busy ? "请稍候…" : "测试连接";
+  saveButton.querySelector("span:first-child").textContent = busy && mode === "save" ? localize('working', "请稍候…") : localize('saveSettings', "保存配置");
+  testButton.querySelector(".test-label").textContent = busy && mode === "test" ? localize('cancelConnectionCheck', "取消检测") : busy ? localize('working', "请稍候…") : localize('testConnection', "测试连接");
   testButton.dataset.testing = String(busy && mode === "test");
   renderKeyStatus();
 }
 
-function cancelConnectionCheck(message = "连接检测已取消。") {
+function cancelConnectionCheck(message = localize('connectionCheckCancelled', "连接检测已取消。")) {
   if (!activeConnectionCheck) return;
   const check = activeConnectionCheck;
   activeConnectionCheck = null;
@@ -223,7 +226,7 @@ endpointInput.addEventListener("input", () => {
 
 function onFormChanged() {
   renderKeyStatus();
-  if (activeConnectionCheck) cancelConnectionCheck("配置已修改，连接检测已取消。请重新检测。");
+  if (activeConnectionCheck) cancelConnectionCheck(localize('connectionDraftChanged', "配置已修改，连接检测已取消。请重新检测。"));
   else status.hidden = true;
 }
 form.addEventListener("input", onFormChanged);
@@ -233,7 +236,7 @@ form.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (operationBusy) return;
   if (typeof globalThis.navigator?.locks?.request !== "function") {
-    showStatus("当前浏览器不支持安全的多页面设置操作，请升级 Chrome 后重试。", "error");
+    showStatus(localize('settingsLockUnsupported', "当前浏览器不支持安全的多页面设置操作，请升级 Chrome 后重试。"), "error");
     return;
   }
   const draft = formSettings();
@@ -248,10 +251,10 @@ form.addEventListener("submit", async (event) => {
   }
 
   setBusy(true);
-  showStatus("正在申请访问此 AI 服务的权限…", "working");
+  showStatus(localize('requestingServiceOrigin', "正在申请访问此 AI 服务的权限…"), "working");
   try {
     if (!(await permissionPromise)) {
-      showStatus("未获得该服务的访问权限。请允许访问后再保存。", "error");
+      showStatus(localize('savePermissionDenied', "未获得该服务的访问权限。请允许访问后再保存。"), "error");
       return;
     }
     const result = await saveSettingsWithPermission({
@@ -264,10 +267,10 @@ form.addEventListener("submit", async (event) => {
     apiKeyInput.value = "";
     renderKeyStatus();
     showStatus(result.cleanupFailed
-      ? "配置已保存，但旧域名权限未能撤销。请在下方授权列表中手动处理。"
-      : "配置已保存。现在可以在网页中选中文字开始翻译。", result.cleanupFailed ? "error" : "success");
+      ? localize('savedCleanupFailed', "配置已保存，但旧域名权限未能撤销。请在下方授权列表中手动处理。")
+      : localize('settingsSaved', "配置已保存。现在可以在网页中选中文字开始翻译。"), result.cleanupFailed ? "error" : "success");
   } catch (error) {
-    showSettingsFailure(error, "保存失败，请检查浏览器存储和权限后重试。新申请的域名权限可能仍保留在下方列表中。");
+    showSettingsFailure(error, localize('settingsSaveError', "保存失败，请检查浏览器存储和权限后重试。新申请的域名权限可能仍保留在下方列表中。"));
   } finally {
     await refreshPermissions();
     setBusy(false);
@@ -294,11 +297,11 @@ testButton.addEventListener("click", async () => {
   const check = { controller: new AbortController() };
   activeConnectionCheck = check;
   setBusy(true, "test");
-  showStatus("正在检测连接，将发送一小段示例文字；可点击「取消检测」。", "working");
+  showStatus(localize('testingConnection', "正在检测连接，将发送一小段示例文字；可点击「取消检测」。"), "working");
   try {
     if (!(await permissionPromise)) {
       if (activeConnectionCheck !== check) return;
-      showStatus("未获得该服务的访问权限。请允许访问后重试。", "error");
+      showStatus(localize('testPermissionDenied', "未获得该服务的访问权限。请允许访问后重试。"), "error");
       return;
     }
     if (activeConnectionCheck !== check) return;
@@ -308,11 +311,11 @@ testButton.addEventListener("click", async () => {
     const { translation, durationMs } = await checkConnection({ settings: config, signal: check.controller.signal });
     if (activeConnectionCheck !== check) return;
     const sample = translation.length > 120 ? `${translation.slice(0, 120)}…` : translation;
-    showStatus(`连接正常，已收到有效译文（${(durationMs / 1000).toFixed(1)} 秒）。示例译文：「${sample}」。检测本身不会保存配置。`, "success");
+    showStatus(localize('connectionSuccess', `连接正常，已收到有效译文（${(durationMs / 1000).toFixed(1)} 秒）。示例译文：「${sample}」。检测本身不会保存配置。`, (durationMs / 1000).toFixed(1), sample), "success");
   } catch (error) {
     if (activeConnectionCheck !== check) return;
-    const message = error instanceof Error ? error.message : "请检查配置后重试。";
-    showStatus(`连接检测失败：${message}`, "error");
+    const message = error instanceof Error ? error.message : localize('connectionRetry', "请检查配置后重试。");
+    showStatus(localize('connectionFailed', `连接检测失败：${message}`, message), "error");
   } finally {
     await refreshPermissions();
     if (activeConnectionCheck === check) {
@@ -337,15 +340,15 @@ clearKeyButton.addEventListener("click", async () => {
     savedSettings = outcome.settings;
     if (outcome.noKey) {
       apiKeyInput.value = "";
-      showStatus("当前没有已保存的 API Key。", "working");
+      showStatus(localize('noKeyToClear', "当前没有已保存的 API Key。"), "working");
       return;
     }
     apiKeyInput.value = "";
     showStatus(outcome.cleanupFailed
-      ? "密钥已清除，但服务域名权限未能撤销。请在下方列表中手动处理。"
-      : "已清除本机保存的密钥和当前输入。", outcome.cleanupFailed ? "error" : "success");
+      ? localize('clearedKeyCleanupFailed', "密钥已清除，但服务域名权限未能撤销。请在下方列表中手动处理。")
+      : localize('clearedKey', "已清除本机保存的密钥和当前输入。"), outcome.cleanupFailed ? "error" : "success");
   } catch (error) {
-    showSettingsFailure(error, "清除密钥失败，请检查浏览器存储后重试。");
+    showSettingsFailure(error, localize('clearKeyFailed', "清除密钥失败，请检查浏览器存储后重试。"));
   } finally {
     await refreshPermissions();
     setBusy(false);
@@ -353,7 +356,7 @@ clearKeyButton.addEventListener("click", async () => {
 });
 
 resetButton.addEventListener("click", async () => {
-  if (operationBusy || !window.confirm("确定重置全部配置、清除密钥并撤销已授权域名吗？")) return;
+  if (operationBusy || !window.confirm(localize('confirmReset', "确定重置全部配置、清除密钥并撤销已授权域名吗？"))) return;
   cancelConnectionCheck();
   setBusy(true, "manage");
   try {
@@ -364,10 +367,10 @@ resetButton.addEventListener("click", async () => {
     savedSettings = null;
     fillForm(DEFAULT_SETTINGS);
     showStatus(result.cleanupFailed
-      ? "配置已重置，但部分域名权限未能撤销。请在下方列表中手动处理。"
-      : "本机配置和密钥已重置，已撤销授权域名。", result.cleanupFailed ? "error" : "success");
+      ? localize('resetCleanupFailed', "配置已重置，但部分域名权限未能撤销。请在下方列表中手动处理。")
+      : localize('settingsReset', "本机配置和密钥已重置，已撤销授权域名。"), result.cleanupFailed ? "error" : "success");
   } catch (error) {
-    showSettingsFailure(error, "重置失败，原配置仍保留。请检查浏览器存储后重试。");
+    showSettingsFailure(error, localize('settingsResetFailed', "重置失败，原配置仍保留。请检查浏览器存储后重试。"));
   } finally {
     await refreshPermissions();
     setBusy(false);
@@ -389,7 +392,7 @@ async function initialize() {
     savedSettings = await readSavedSettings();
     fillForm({ ...DEFAULT_SETTINGS, ...(savedSettings || {}) });
   } catch {
-    showStatus("无法读取本机设置，请重新打开设置页。", "error");
+    showStatus(localize('settingsReadFailed', "无法读取本机设置，请重新打开设置页。"), "error");
   }
   await refreshPermissions();
 }

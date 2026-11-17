@@ -1,0 +1,916 @@
+{
+  "aboutTransMate": {
+    "message": "About TransMate"
+  },
+  "aboutYourData": {
+    "message": "About your data"
+  },
+  "actionTitle": {
+    "message": "Open TransMate"
+  },
+  "aiService": {
+    "message": "AI service"
+  },
+  "apiKeyControlCharacters": {
+    "message": "An API key cannot contain control characters."
+  },
+  "authorizedDomains": {
+    "message": "Authorized domains"
+  },
+  "authorizedServiceDomains": {
+    "message": "Authorized service domains"
+  },
+  "cancelConnectionCheck": {
+    "message": "Cancel test"
+  },
+  "cancelSummary": {
+    "message": "Cancel summary"
+  },
+  "cancelTranslation": {
+    "message": "Cancel translation"
+  },
+  "cannotCheckGrant": {
+    "message": "Could not verify domain access. Save again and allow access."
+  },
+  "cannotDisplayCard": {
+    "message": "The translation card could not be opened."
+  },
+  "cannotInjectCard": {
+    "message": "The translation card could not be loaded."
+  },
+  "cannotReadPage": {
+    "message": "Could not read the page text. Refresh the page and try again."
+  },
+  "cannotShowTranslation": {
+    "message": "Could not display the translation. Please try again."
+  },
+  "cardAriaLabel": {
+    "message": "TransMate selection translation"
+  },
+  "cardRestartError": {
+    "message": "Could not restart translation. Try again in a moment."
+  },
+  "cardTimeout": {
+    "message": "Translation took more than $ARG1$ seconds. Please try again.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "cardWaitTimeout": {
+    "message": "Translation timed out. Please try again."
+  },
+  "changedEndpointKey": {
+    "message": "The service or endpoint changed. Enter a new API key."
+  },
+  "characterCount": {
+    "message": "$ARG1$ characters",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseService": {
+    "message": "Choose a service"
+  },
+  "chooseServiceModel": {
+    "message": "Choose a service and model"
+  },
+  "clear": {
+    "message": "Clear"
+  },
+  "clearHistory": {
+    "message": "Clear history"
+  },
+  "clearKeyFailed": {
+    "message": "Could not clear the key. Check browser storage and try again."
+  },
+  "clearSavedKey": {
+    "message": "Clear saved key"
+  },
+  "clearedKey": {
+    "message": "The saved key and current entry were cleared."
+  },
+  "clearedKeyCleanupFailed": {
+    "message": "The key was cleared. Revoke remaining service access below."
+  },
+  "close": {
+    "message": "Close"
+  },
+  "closeTranslation": {
+    "message": "Close translation"
+  },
+  "collapseOriginal": {
+    "message": "Collapse original"
+  },
+  "commandPage": {
+    "message": "Translate page side by side"
+  },
+  "commandSelection": {
+    "message": "Translate selected text"
+  },
+  "commandSummary": {
+    "message": "Summarize page"
+  },
+  "complete": {
+    "message": "Complete"
+  },
+  "configureFirstBanner": {
+    "message": "Configure an AI service to start translating."
+  },
+  "confirmReset": {
+    "message": "Reset all settings, remove the saved key, and revoke authorized domains?"
+  },
+  "connectAI": {
+    "message": "Connect an AI service"
+  },
+  "connectionCheckCancelled": {
+    "message": "Connection test canceled."
+  },
+  "connectionDetails": {
+    "message": "Connection details"
+  },
+  "connectionDraftChanged": {
+    "message": "Settings changed and the test was canceled. Test again with the updated settings."
+  },
+  "connectionFailed": {
+    "message": "Connection test failed: $ARG1$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectionRetry": {
+    "message": "Check the settings and try again."
+  },
+  "connectionSuccess": {
+    "message": "Connection succeeded in $ARG1$ s. Sample: “$ARG2$”. Settings were left as they were.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "connectionTimeout": {
+    "message": "The connection test timed out after $ARG1$ seconds. Check the service and try again.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "copied": {
+    "message": "Copied"
+  },
+  "copyFailed": {
+    "message": "Could not copy"
+  },
+  "copySummary": {
+    "message": "Copy summary"
+  },
+  "copyTranslation": {
+    "message": "Copy translation"
+  },
+  "couldNotConfirmRevoke": {
+    "message": "Could not confirm revocation. Reopen settings and check the permissions list."
+  },
+  "currentSelectionOnly": {
+    "message": "Applies only to this selection"
+  },
+  "customInstructions": {
+    "message": "Custom translation instructions"
+  },
+  "customInstructionsHelp": {
+    "message": "These instructions are added to the translation prompt. The target language is already included."
+  },
+  "customInstructionsPlaceholder": {
+    "message": "For example, keep technical terms and use concise language."
+  },
+  "customProvider": {
+    "message": "Custom"
+  },
+  "defaultChinese": {
+    "message": "Simplified Chinese (default)"
+  },
+  "defaultLanguage": {
+    "message": "Default language from settings"
+  },
+  "defaultNamedLanguage": {
+    "message": "$ARG1$ (default)",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "delete": {
+    "message": "Delete"
+  },
+  "deleteHistoryEntry": {
+    "message": "Delete this history entry"
+  },
+  "earlyStreamEnd": {
+    "message": "The AI response ended early. Please try again."
+  },
+  "editOriginal": {
+    "message": "Return to editing"
+  },
+  "emptyCount": {
+    "message": "0 characters"
+  },
+  "emptyHistory": {
+    "message": "No translation history yet."
+  },
+  "emptyTranslation": {
+    "message": "Translate to start reading."
+  },
+  "emptyTranslationHelp": {
+    "message": "The translation appears here"
+  },
+  "endpointForbiddenData": {
+    "message": "An endpoint cannot contain control characters, a query, or a fragment."
+  },
+  "endpointHTTPS": {
+    "message": "Use an HTTPS endpoint. Only localhost and 127.0.0.1 can use HTTP."
+  },
+  "endpointHelp": {
+    "message": "Enter the full Chat Completions endpoint. Only local services can use HTTP."
+  },
+  "endpointInvalid": {
+    "message": "Enter a valid endpoint URL."
+  },
+  "endpointLabel": {
+    "message": "Endpoint"
+  },
+  "endpointNoCredentials": {
+    "message": "An endpoint cannot contain credentials, a query, or a fragment."
+  },
+  "endpointRequired": {
+    "message": "Enter the full Chat Completions endpoint."
+  },
+  "errorState": {
+    "message": "Error"
+  },
+  "expandOriginal": {
+    "message": "Expand original"
+  },
+  "extensionDescription": {
+    "message": "Translate selected text, read bilingual pages, and summarize webpages using an AI service you configure."
+  },
+  "extensionName": {
+    "message": "TransMate · AI Translation"
+  },
+  "extensionSettingsError": {
+    "message": "Could not read extension settings: $ARG1$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "fetchFailed": {
+    "message": "The network request failed. Check the endpoint, network connection, and proxy settings."
+  },
+  "forbiddenProvider": {
+    "message": "$ARG1$ Access was denied. Check the API key, account, and model permissions.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "gettingStarted": {
+    "message": "Getting started"
+  },
+  "grantChanged": {
+    "message": "Domain access changed. Save again and allow access."
+  },
+  "heroFirst": {
+    "message": "Translate"
+  },
+  "heroSecondLead": {
+    "message": "with the AI"
+  },
+  "heroSecondStrong": {
+    "message": "you choose"
+  },
+  "heroThird": {
+    "message": "for the job."
+  },
+  "history": {
+    "message": "Translation history"
+  },
+  "historyDisabled": {
+    "message": "History recording is off."
+  },
+  "historyEntries": {
+    "message": "History entries"
+  },
+  "historyLockError": {
+    "message": "Could not safely update local translation history."
+  },
+  "historyUpdateError": {
+    "message": "Could not update history. Please try again."
+  },
+  "httpStatusUnknown": {
+    "message": "Unknown HTTP status"
+  },
+  "inProgress": {
+    "message": "Translating"
+  },
+  "inputTooLong": {
+    "message": "The original is over $ARG1$ characters. Shorten it and try again.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "invalidCompletion": {
+    "message": "The service returned $ARG1$, but the response was not valid Chat Completions JSON. Check the endpoint and compatibility.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "invalidConnectionTimeout": {
+    "message": "The connection test timeout is invalid."
+  },
+  "invalidPrompt": {
+    "message": "The custom translation instructions must be text."
+  },
+  "invalidProvider": {
+    "message": "Choose a valid AI service."
+  },
+  "invalidSettings": {
+    "message": "Enter valid translation settings."
+  },
+  "invalidStream": {
+    "message": "The AI service returned an invalid stream. Try again or choose another model."
+  },
+  "keyNeeded": {
+    "message": "Enter an API key. It can be left blank only when reusing a key for the same service and exact endpoint."
+  },
+  "langChineseSimplified": {
+    "message": "Simplified Chinese"
+  },
+  "langChineseTraditional": {
+    "message": "Traditional Chinese"
+  },
+  "langEnglish": {
+    "message": "English"
+  },
+  "langFrench": {
+    "message": "French"
+  },
+  "langGerman": {
+    "message": "German"
+  },
+  "langJapanese": {
+    "message": "Japanese"
+  },
+  "langKorean": {
+    "message": "Korean"
+  },
+  "langSpanish": {
+    "message": "Spanish"
+  },
+  "loading": {
+    "message": "Loading…"
+  },
+  "loadingSettings": {
+    "message": "Loading saved settings…"
+  },
+  "localKeyHelp": {
+    "message": "Saved keys stay hidden. Enter a new key after changing the service or endpoint."
+  },
+  "localKeysAndPermissions": {
+    "message": "Local credentials and permissions"
+  },
+  "locale": {
+    "message": "en"
+  },
+  "missingCompletion": {
+    "message": "The service returned $ARG1$, but no valid $ARG2$. Check model compatibility with Chat Completions.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "missingProviderModel": {
+    "message": "$ARG1$ The endpoint or model was not found. Check the Chat Completions URL and model ID.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "missingSavedKey": {
+    "message": "No API key is saved. Enter an API key."
+  },
+  "modelIdLabel": {
+    "message": "Model ID"
+  },
+  "modelName": {
+    "message": "a model name"
+  },
+  "newApiKey": {
+    "message": "Enter a new API key"
+  },
+  "noGrantedOrigins": {
+    "message": "No service domains are authorized."
+  },
+  "noKeyToClear": {
+    "message": "There is no saved API key."
+  },
+  "noNetwork": {
+    "message": "Network requests are unavailable in this environment."
+  },
+  "noPageText": {
+    "message": "This page has no text to process."
+  },
+  "noProcessablePageText": {
+    "message": "This page has no text to process."
+  },
+  "noReadableText": {
+    "message": "This page has no readable article text."
+  },
+  "openConfiguredService": {
+    "message": "Set an AI service, model, and API key in settings."
+  },
+  "openInSidePanel": {
+    "message": "Open in side panel"
+  },
+  "openSettings": {
+    "message": "Open settings"
+  },
+  "openSettingsIcon": {
+    "message": "Open settings"
+  },
+  "opening": {
+    "message": "Opening…"
+  },
+  "optional": {
+    "message": "Optional"
+  },
+  "originAlreadyRevoked": {
+    "message": "That domain was already unauthorized. The list was refreshed."
+  },
+  "pageActionEnded": {
+    "message": "This page action has ended."
+  },
+  "pageCancelled": {
+    "message": "Page processing canceled."
+  },
+  "pageChanged": {
+    "message": "The page content changed. Restart the translation."
+  },
+  "pageHighlights": {
+    "message": "Page summary"
+  },
+  "pageLimit": {
+    "message": "Reached the page content limit."
+  },
+  "pageSummaryMenu": {
+    "message": "Summarize page"
+  },
+  "pageTranslateMenu": {
+    "message": "Translate page side by side"
+  },
+  "pageTranslatedCount": {
+    "message": "Translated $ARG1$ sections. $ARG2$ $ARG3$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      },
+      "arg3": {
+        "content": "$3"
+      }
+    }
+  },
+  "pageTranslationEnded": {
+    "message": "This page translation has ended."
+  },
+  "pageTranslationFailed": {
+    "message": "Page translation failed. Please try again."
+  },
+  "pageTranslationInvalid": {
+    "message": "The AI service did not return all sections. Try again or select another model."
+  },
+  "pageTranslationProgress": {
+    "message": "Translating sections ($ARG1$ of $ARG2$)…",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "pageTranslationProgress2": {
+    "message": "Translating sections ($ARG1$ of $ARG2$)…",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "panelHeroEnd": {
+    "message": "languages."
+  },
+  "panelHeroStart": {
+    "message": "Read across"
+  },
+  "panelIntro": {
+    "message": "Select text and choose “Translate with TransMate” from the context menu, or type here."
+  },
+  "panelLanguageScope": {
+    "message": "This choice applies only to this side panel."
+  },
+  "panelTitle": {
+    "message": "TransMate · Translation"
+  },
+  "pendingSelectionError": {
+    "message": "Could not clear the pending selection. Edit the original before translating it again."
+  },
+  "permissionReadError": {
+    "message": "Could not read authorized domains. Reopen settings."
+  },
+  "permissionRevokeError": {
+    "message": "Could not revoke access. Check browser permissions and try again."
+  },
+  "privateSettingsUnavailable": {
+    "message": "The extension could not secure local settings."
+  },
+  "providerHttpPrefix": {
+    "message": "The translation service returned $ARG1$. ",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "providerPermissionMissing": {
+    "message": "The AI service requires site access. Re-save the configuration and allow access."
+  },
+  "providerPermissionUnknown": {
+    "message": "Could not confirm access to the AI service. Re-save the configuration and allow access."
+  },
+  "providerPrivacy": {
+    "message": "Text goes only to the AI service you configured"
+  },
+  "rateLimited": {
+    "message": "$ARG1$ Rate or quota limit reached. Check your quota and try again later.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "readPageError": {
+    "message": "Could not read this page. Try again on a regular webpage."
+  },
+  "readingComparison": {
+    "message": "Compare translations"
+  },
+  "readingPage": {
+    "message": "Reading page text…"
+  },
+  "recordLocally": {
+    "message": "Record on this device"
+  },
+  "removeTranslations": {
+    "message": "Remove translations"
+  },
+  "requestFailed": {
+    "message": "$ARG1$ The request failed. Check the endpoint, model ID, and service status.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "requestingServiceOrigin": {
+    "message": "Requesting access to this AI service…"
+  },
+  "requiredField": {
+    "message": "Enter $ARG1$.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "resetAllSettings": {
+    "message": "Reset all settings"
+  },
+  "resetCleanupFailed": {
+    "message": "Settings were reset. Some domains still have access. Revoke them below."
+  },
+  "resultLengthLimit": {
+    "message": "The $ARG1$ exceeded the output limit. Use a model with a higher output limit.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "retry": {
+    "message": "Retry"
+  },
+  "retryOpeningPanel": {
+    "message": "Try opening the side panel again"
+  },
+  "reuseKeyHelp": {
+    "message": "A key is saved for this service. Leave this field blank to reuse it."
+  },
+  "revoke": {
+    "message": "Revoke"
+  },
+  "revokeHelp": {
+    "message": "If you revoke access to the current service, save or test the connection again to keep translating."
+  },
+  "revokeOriginFailed": {
+    "message": "Access to $ARG1$ is still granted. Retry or revoke it in Chrome's extensions page.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "revokeOriginLabel": {
+    "message": "Revoke access to $ARG1$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "revokedOrigin": {
+    "message": "Access to $ARG1$ was revoked. You can grant it again by saving or testing the connection.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "savePermissionDenied": {
+    "message": "Service access was denied. Allow access before saving."
+  },
+  "saveSettings": {
+    "message": "Save settings"
+  },
+  "savedCleanupFailed": {
+    "message": "Settings are saved, but access to the old domain is still granted. Revoke it below."
+  },
+  "scrollForMore": {
+    "message": "Scroll to translate more text."
+  },
+  "selectFirst": {
+    "message": "Select some text before using the translation shortcut."
+  },
+  "selectText": {
+    "message": "Select the text you want to translate."
+  },
+  "selectionLimit": {
+    "message": "Selected text cannot exceed $ARG1$ characters.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "selectionTranslation": {
+    "message": "Selection translation"
+  },
+  "serviceModelPlaceholder": {
+    "message": "Enter a model ID supported by your service"
+  },
+  "serviceNetworkError": {
+    "message": "Could not connect to the AI service. Check the endpoint, network, and site access."
+  },
+  "servicePresetsHelp": {
+    "message": "Presets fill in the endpoint. You can edit it or enter a custom OpenAI-compatible endpoint."
+  },
+  "serviceTimeout": {
+    "message": "The service timed out. Check its status and try again."
+  },
+  "settingsFooter": {
+    "message": "Keep reading"
+  },
+  "settingsIntro": {
+    "message": "Translate selected text, read two languages side by side, or paste text into the side panel."
+  },
+  "settingsIntroDetails": {
+    "message": "Configure translation for your workflow. After saving, select text on a webpage and use TransMate from the context menu."
+  },
+  "settingsLockUnsupported": {
+    "message": "This browser cannot safely update settings across windows. Update Chrome and try again."
+  },
+  "settingsPrivacyNote": {
+    "message": "Your API key is stored locally by this extension. Text is sent to the AI service you choose. Testing the connection sends a short sample."
+  },
+  "settingsReadFailed": {
+    "message": "Could not read local settings. Reopen settings."
+  },
+  "settingsReset": {
+    "message": "Local settings and keys were reset, and domain access was revoked."
+  },
+  "settingsResetFailed": {
+    "message": "Could not reset. Your previous settings remain. Check browser storage and try again."
+  },
+  "settingsSaveError": {
+    "message": "Could not save. Check browser storage and permissions. Newly granted domains may still appear below."
+  },
+  "settingsSaved": {
+    "message": "Settings saved. Select text on a webpage to start translating."
+  },
+  "settingsTab": {
+    "message": "SETTINGS"
+  },
+  "settingsTitle": {
+    "message": "TransMate · Settings"
+  },
+  "sidePanelConnectionTimeout": {
+    "message": "Connection timed out after 45 seconds. Check the service and try again."
+  },
+  "sidePanelOpenError": {
+    "message": "Could not open the side panel. Please try again."
+  },
+  "sourceLabel": {
+    "message": "Text to translate"
+  },
+  "sourcePlaceholder": {
+    "message": "Select text on a webpage or paste it here…"
+  },
+  "sourceText": {
+    "message": "Original"
+  },
+  "startFromSelection": {
+    "message": "Select text and translate"
+  },
+  "startTranslation": {
+    "message": "Translate"
+  },
+  "stop": {
+    "message": "Stop"
+  },
+  "stopTranslation": {
+    "message": "Stop translation"
+  },
+  "stopped": {
+    "message": "Stopped"
+  },
+  "streamLengthLimit": {
+    "message": "The translation hit the output limit. Use a model with a higher output limit."
+  },
+  "streamReadError": {
+    "message": "Could not read the AI stream. Check your connection and try again."
+  },
+  "summarizingPage": {
+    "message": "Summarizing the page…"
+  },
+  "summary": {
+    "message": "Summary"
+  },
+  "summaryFailed": {
+    "message": "Page summarization failed. Please try again."
+  },
+  "summaryLimit": {
+    "message": "The summary covers the text within the page content limit."
+  },
+  "summarySectionTooLong": {
+    "message": "A section summary was too long to combine. Try again or choose another model."
+  },
+  "targetLanguage": {
+    "message": "Target language"
+  },
+  "temporaryTarget": {
+    "message": "Temporary target language"
+  },
+  "testConnection": {
+    "message": "Test connection"
+  },
+  "testPermissionDenied": {
+    "message": "Service access was denied. Allow access and try again."
+  },
+  "testSave": {
+    "message": "Test and save the settings"
+  },
+  "testingConnection": {
+    "message": "Sending a short sample to test the connection. Select Cancel test to stop."
+  },
+  "translateAgain": {
+    "message": "Translate again"
+  },
+  "translateInto": {
+    "message": "Translate to"
+  },
+  "translateSelectionMenu": {
+    "message": "Translate with TransMate"
+  },
+  "translateToLanguage": {
+    "message": "Translate to $ARG1$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "translating": {
+    "message": "Translating…"
+  },
+  "translatingAnnouncement": {
+    "message": "Translating."
+  },
+  "translation": {
+    "message": "Translation"
+  },
+  "translationCancelled": {
+    "message": "Translation canceled."
+  },
+  "translationComplete": {
+    "message": "Translation complete."
+  },
+  "translationContent": {
+    "message": "Translation content"
+  },
+  "translationFailed": {
+    "message": "Translation failed. Please try again."
+  },
+  "translationPreferences": {
+    "message": "Translation preferences"
+  },
+  "translationProblem": {
+    "message": "Could not finish translating"
+  },
+  "translationRetryLater": {
+    "message": "Translation failed. Try again in a moment."
+  },
+  "translationSettingsUpdated": {
+    "message": "Translation settings changed. Please try again."
+  },
+  "translationStopped": {
+    "message": "Translation stopped"
+  },
+  "translationWorkspace": {
+    "message": "Translation workspace"
+  },
+  "typedKeyHelp": {
+    "message": "The new key will be used and stored when you save."
+  },
+  "unauthorizedProvider": {
+    "message": "$ARG1$ Authentication failed. Check that the API key is valid.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "upstreamTimeout": {
+    "message": "$ARG1$ The service timed out. Check its status and try again.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "upstreamUnavailable": {
+    "message": "$ARG1$ The AI service is unavailable. Check its status and try again later.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "waitingForInput": {
+    "message": "Waiting for input"
+  },
+  "working": {
+    "message": "Please wait…"
+  },
+  "workingTranslation": {
+    "message": "Translating…"
+  },
+  "wrongPageParagraphs": {
+    "message": "The translations do not match the page paragraphs. Restart the translation."
+  }
+}

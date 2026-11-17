@@ -1,4 +1,6 @@
 (() => {
+  const localize = (name, fallback, ...values) =>
+    globalThis.chrome?.i18n?.getMessage?.(name, values.map(String)) || fallback;
   const SINGLETON_KEY = '__transmateInlineTranslation';
   if (globalThis[SINGLETON_KEY]) return;
 
@@ -295,7 +297,7 @@
       if (state.requestId !== requestId || state.status !== 'loading') return;
       state.restart = null;
       state.status = 'error';
-      state.error = '翻译等待超时，请重试。';
+      state.error = localize('cardWaitTimeout', '翻译等待超时，请重试。');
       render();
       sendCancel(requestId);
     }, WATCHDOG_MS);
@@ -457,7 +459,7 @@
     clearWatchdog();
     state.invalidatedRequestId = state.requestId;
     state.status = 'error';
-    state.error = '无法重新发起翻译，请稍后重试。';
+    state.error = localize('cardRestartError', '无法重新发起翻译，请稍后重试。');
     render();
   }
 
@@ -470,7 +472,7 @@
 
     const host = document.createElement('div');
     host.id = 'transmate-inline-host';
-    host.lang = 'zh-CN';
+    host.lang = localize('locale', 'zh-CN');
     host.dir = 'ltr';
     host.style.setProperty('all', 'initial');
     host.style.setProperty('position', 'fixed');
@@ -486,33 +488,33 @@
 
     const card = element('section', 'card');
     card.setAttribute('role', 'dialog');
-    card.setAttribute('aria-label', 'TransMate 划词翻译');
+    card.setAttribute('aria-label', localize('cardAriaLabel', 'TransMate 划词翻译'));
     card.tabIndex = -1;
     const header = element('div', 'header');
-    const heading = element('p', 'eyebrow', '划词翻译');
+    const heading = element('p', 'eyebrow', localize('selectionTranslation', '划词翻译'));
     const targetPicker = element('label', 'eyebrow target-picker');
     const targetControl = element('span', 'target-control');
     const targetSelect = element('select', 'target-select');
-    targetSelect.setAttribute('aria-label', '目标语言');
-    targetSelect.title = '仅对当前划词生效';
+    targetSelect.setAttribute('aria-label', localize('targetLanguage', '目标语言'));
+    targetSelect.title = localize('currentSelectionOnly', '仅对当前划词生效');
     targetControl.append(targetSelect, icon('m5 9 7 7 7-7'));
-    targetPicker.append(element('span', '', '译为'), targetControl);
+    targetPicker.append(element('span', '', localize('translateInto', '译为')), targetControl);
     const closeButton = element('button', 'close');
     closeButton.type = 'button';
-    closeButton.setAttribute('aria-label', '关闭翻译');
+    closeButton.setAttribute('aria-label', localize('closeTranslation', '关闭翻译'));
     closeButton.append(icon('M6 6l12 12M18 6L6 18'));
     header.append(heading, targetPicker, closeButton);
 
     const body = element('div', 'body');
     body.setAttribute('role', 'region');
-    body.setAttribute('aria-label', '翻译内容');
+    body.setAttribute('aria-label', localize('translationContent', '翻译内容'));
     const sourceSection = element('div', 'source-section');
     sourceSection.setAttribute('role', 'group');
-    sourceSection.setAttribute('aria-label', '原文');
+    sourceSection.setAttribute('aria-label', localize('sourceText', '原文'));
     const source = element('p', 'source');
     source.id = 'transmate-inline-source';
     source.dir = 'auto';
-    const sourceToggle = element('button', 'source-toggle', '展开原文');
+    const sourceToggle = element('button', 'source-toggle', localize('expandOriginal', '展开原文'));
     sourceToggle.type = 'button';
     sourceToggle.hidden = true;
     sourceToggle.setAttribute('aria-controls', source.id);
@@ -520,7 +522,7 @@
     const loading = element('div', 'loading');
     const spinner = element('span', 'spinner');
     spinner.setAttribute('aria-hidden', 'true');
-    loading.append(spinner, element('span', '', '正在翻译…'));
+    loading.append(spinner, element('span', '', localize('translating', '正在翻译…')));
     const result = element('p', 'result');
     result.dir = 'auto';
     const error = element('p', 'error');
@@ -529,12 +531,12 @@
     body.append(loading, result, error, sourceSection);
 
     const footer = element('div', 'footer');
-    const optionsButton = element('button', 'action', '去设置');
-    const retryButton = element('button', 'action', '重试');
-    const stopButton = element('button', 'action', '停止翻译');
-    const panelButton = element('button', 'action', '在侧栏打开');
+    const optionsButton = element('button', 'action', localize('openSettings', '去设置'));
+    const retryButton = element('button', 'action', localize('retry', '重试'));
+    const stopButton = element('button', 'action', localize('stopTranslation', '停止翻译'));
+    const panelButton = element('button', 'action', localize('openInSidePanel', '在侧栏打开'));
     const copyButton = element('button', 'action primary');
-    const copyLabel = element('span', '', '复制译文');
+    const copyLabel = element('span', '', localize('copyTranslation', '复制译文'));
     copyButton.append(icon('M9 8h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2ZM16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h1'), copyLabel);
     for (const button of [optionsButton, retryButton, stopButton, panelButton, copyButton]) button.type = 'button';
     footer.append(copyButton, panelButton, retryButton, optionsButton, stopButton);
@@ -575,7 +577,7 @@
       if (!event.isTrusted || !requestId || state.status !== 'success' || state.panelRequestId) return;
       state.panelRequestId = requestId;
       panelButton.disabled = true;
-      panelButton.textContent = '正在打开…';
+      panelButton.textContent = localize('opening', '正在打开…');
       const response = await send({ type: MESSAGE.openPanel, requestId }).catch(() => null);
       if (state.panelRequestId !== requestId) return;
       state.panelRequestId = null;
@@ -583,8 +585,8 @@
         close(true, { restoreFocus: false });
       } else {
         panelButton.disabled = false;
-        panelButton.textContent = '重试打开侧栏';
-        announcement.textContent = '无法打开侧栏，请重试。';
+        panelButton.textContent = localize('retryOpeningPanel', '重试打开侧栏');
+        announcement.textContent = localize('sidePanelOpenError', '无法打开侧栏，请重试。');
       }
     });
     copyButton.addEventListener('click', async (event) => {
@@ -594,15 +596,15 @@
       try {
         await navigator.clipboard.writeText(state.translation);
         if (state.requestId !== requestId || state.status !== 'success') return;
-        copyLabel.textContent = '已复制';
+        copyLabel.textContent = localize('copied', '已复制');
       } catch {
         if (state.requestId !== requestId || state.status !== 'success') return;
-        copyLabel.textContent = '复制失败';
+        copyLabel.textContent = localize('copyFailed', '复制失败');
       }
       announcement.textContent = copyLabel.textContent;
       if (state.copyReset !== null) clearTimeout(state.copyReset);
       state.copyReset = setTimeout(() => {
-        if (state.requestId === requestId) copyLabel.textContent = '复制译文';
+        if (state.requestId === requestId) copyLabel.textContent = localize('copyTranslation', '复制译文');
         state.copyReset = null;
       }, 1800);
     });
@@ -619,7 +621,7 @@
   function updateSourcePreview() {
     const { sourceSection, sourceToggle } = state.elements;
     sourceSection.dataset.collapsed = String(!state.sourceExpanded);
-    sourceToggle.textContent = state.sourceExpanded ? '收起原文' : '展开原文';
+    sourceToggle.textContent = state.sourceExpanded ? localize('collapseOriginal', '收起原文') : localize('expandOriginal', '展开原文');
     sourceToggle.setAttribute('aria-expanded', String(state.sourceExpanded));
   }
 
@@ -649,7 +651,7 @@
     const succeeded = state.status === 'success';
     const failed = state.status === 'error';
     const pending = state.status === 'loading';
-    const needsSettings = failed && /API Key|授权|域名权限|接口地址|翻译设置|目标语言/.test(state.error);
+    const needsSettings = failed && /API Key|授权|域名权限|接口地址|翻译设置|目标语言|permission|endpoint|settings|target language/i.test(state.error);
     if (source.textContent !== state.source) source.textContent = state.source;
     updateSourcePreview();
     sourceSection.hidden = state.notice;
@@ -662,18 +664,18 @@
     error.textContent = failed ? state.error : '';
     footer.hidden = state.notice;
     retryButton.hidden = !succeeded && !failed;
-    retryButton.textContent = succeeded ? '重新翻译' : '重试';
+    retryButton.textContent = succeeded ? localize('translateAgain', '重新翻译') : localize('retry', '重试');
     optionsButton.hidden = !failed;
     optionsButton.classList.toggle('primary', needsSettings);
     retryButton.classList.toggle('primary', failed && !needsSettings);
     panelButton.hidden = !succeeded;
     panelButton.disabled = Boolean(state.panelRequestId);
-    panelButton.textContent = state.panelRequestId ? '正在打开…' : '在侧栏打开';
+    panelButton.textContent = state.panelRequestId ? localize('opening', '正在打开…') : localize('openInSidePanel', '在侧栏打开');
     copyButton.hidden = !succeeded;
-    copyLabel.textContent = '复制译文';
+    copyLabel.textContent = localize('copyTranslation', '复制译文');
     stopButton.hidden = !pending;
     if (focused?.closest('[hidden]')) card.focus({ preventScroll: true });
-    announcement.textContent = succeeded ? '翻译完成。' : failed ? state.error : state.notice ? '' : '正在翻译。';
+    announcement.textContent = succeeded ? localize('translationComplete', '翻译完成。') : failed ? state.error : state.notice ? '' : localize('translatingAnnouncement', '正在翻译。');
     schedulePosition();
   }
 
@@ -732,7 +734,7 @@
       state.status = 'error';
       state.translation = '';
       state.error = typeof message.error === 'string' && message.error.trim()
-        ? message.error : '翻译失败，请重试。';
+        ? message.error : localize('translationFailed', '翻译失败，请重试。');
     }
     render();
   }
@@ -783,7 +785,7 @@
       state.status = 'error';
       state.translation = '';
       state.error = typeof message.error === 'string' && message.error.trim()
-        ? message.error : '翻译配置已更新，请重试。';
+        ? message.error : localize('translationSettingsUpdated', '翻译配置已更新，请重试。');
       render();
       sendResponse({ ok: true });
       return;

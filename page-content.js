@@ -1,4 +1,6 @@
 (() => {
+  const localize = (name, fallback, ...values) =>
+    globalThis.chrome?.i18n?.getMessage?.(name, values.map(String)) || fallback;
   const SINGLETON_KEY = '__transmatePageTranslation';
   if (window !== window.top || globalThis[SINGLETON_KEY]) return;
   globalThis[SINGLETON_KEY] = true;
@@ -11,7 +13,7 @@
   const PREFETCH_VIEWPORT_FRACTION = 0.5;
   const STATUS_ID = 'transmate-page-status';
   const TRANSLATION_ATTRIBUTE = 'data-transmate-page-translation';
-  const PAGE_CHANGED = '网页正文已变动，请重新启动翻译。';
+  const PAGE_CHANGED = localize('pageChanged', '网页正文已变动，请重新启动翻译。');
   const EXCLUDED = [
     'nav', 'aside', 'footer', 'form', 'button', 'input', 'select', 'textarea', 'datalist', 'option',
     'dialog', 'summary', 'script', 'style', 'noscript', 'template', 'iframe', 'svg', 'canvas',
@@ -26,7 +28,7 @@
   const TRANSLATE_AFTER = 'p, h1, h2, h3, h4, h5, h6, pre, blockquote, a';
   const SCROLLABLE_OVERFLOW = new Set(['auto', 'scroll', 'overlay']);
   const STATUS_LABELS = {
-    reading: '取消翻译', translating: '取消翻译', paused: '移除译文', success: '移除译文', error: '关闭',
+    reading: localize('cancelTranslation', '取消翻译'), translating: localize('cancelTranslation', '取消翻译'), paused: localize('removeTranslations', '移除译文'), success: localize('removeTranslations', '移除译文'), error: localize('close', '关闭'),
   };
 
   let session = null;
@@ -262,11 +264,11 @@
 
   function read({ requestId, mode }) {
     if (typeof requestId !== 'string' || !requestId || requestId === dismissedRequestId) {
-      return { ok: false, error: '此页面操作已结束。' };
+      return { ok: false, error: localize('pageActionEnded', '此页面操作已结束。') };
     }
     if (mode !== 'summary') clearSession();
     const { blocks, anchors, truncated } = extractPage();
-    if (!blocks.length) return { ok: false, error: '此页面没有可处理的正文。' };
+    if (!blocks.length) return { ok: false, error: localize('noPageText', '此页面没有可处理的正文。') };
     if (mode === 'summary') return { ok: true, blocks, truncated };
     const range = document.createRange();
     for (const anchor of anchors.values()) {
@@ -280,7 +282,7 @@
   }
 
   function next({ requestId }) {
-    if (!session || session.requestId !== requestId) return { ok: false, error: '此页面翻译已结束。' };
+    if (!session || session.requestId !== requestId) return { ok: false, error: localize('pageTranslationEnded', '此页面翻译已结束。') };
     const { blocks, anchors, demand, inserted, truncated } = session;
     const requested = blocks.filter(({ id }) => demand.has(id) && !inserted.has(id)).slice(0, MAX_BLOCKS_PER_VIEW);
     const range = document.createRange();
@@ -290,7 +292,7 @@
 
   function append({ requestId, translations }) {
     if (!session || session.requestId !== requestId || !Array.isArray(translations)) {
-      return { ok: false, error: '此页面翻译已结束。' };
+      return { ok: false, error: localize('pageTranslationEnded', '此页面翻译已结束。') };
     }
     const pending = new Map();
     const range = document.createRange();
@@ -298,7 +300,7 @@
       if (session.inserted.has(entry?.id)) continue;
       const target = session.anchors.get(entry?.id);
       if (!target || typeof entry.text !== 'string' || !entry.text.trim()) {
-        return { ok: false, error: '译文与网页段落不匹配，请重新翻译。' };
+        return { ok: false, error: localize('wrongPageParagraphs', '译文与网页段落不匹配，请重新翻译。') };
       }
       if (!sourceMatches(range, target)) return { ok: false, error: PAGE_CHANGED };
       pending.set(entry.id, { target, text: entry.text });
