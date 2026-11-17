@@ -34,6 +34,19 @@ test('connection check sends a real sample translation and reports its duration'
   assert.ok(result.durationMs >= 0);
 });
 
+test('connection check accepts sample text from a service that reports an output length limit', async () => {
+  const result = await checkConnection({
+    settings,
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{ finish_reason: 'length', message: { content: '你好' } }],
+      }),
+    }),
+  });
+  assert.equal(result.translation, '你好');
+});
+
 test('connection check can be cancelled', async () => {
   const controller = new AbortController();
   const pending = checkConnection({ settings, signal: controller.signal, fetchImpl: abortablePendingFetch });

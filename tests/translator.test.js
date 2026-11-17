@@ -42,6 +42,19 @@ test('translate sends a non-streaming Chat Completions request and returns its t
   assert.equal(body.messages[1].content, 'Hello, world!');
 });
 
+test('translate rejects partial text when the provider reports an output length limit', async () => {
+  await assert.rejects(() => translate({
+    text: 'Hello',
+    settings,
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{ finish_reason: 'length', message: { content: '截断的译文片段' } }],
+      }),
+    }),
+  }), /译文因长度限制而中断.*输出上限更高的模型/);
+});
+
 test('translate rejects empty and overlong text before a network request', async () => {
   let calls = 0;
   const fetchImpl = async () => { calls += 1; throw new Error('should not fetch'); };
