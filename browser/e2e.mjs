@@ -59,6 +59,15 @@ const articleTranslations = [
   '带上<em id="unexpected-page-markup">红光手电筒</em>。',
 ];
 const articleSummary = '寻找北极星前，先让眼睛适应黑暗。准备一支红光手电筒。';
+
+const dynamicBlocks = [
+  ['dynamic-visible', 'New paragraph near the reader.', '新加载的可见段落。'],
+  ['dynamic-far', 'Later article loaded below the fold.', '稍后加载的远处正文。'],
+  ['dynamic-detached', 'Old text removed before the model responds.', '已移除的正文。'],
+  ['dynamic-replacement', 'Replacement article section.', '替换后的新正文。'],
+];
+const dynamicTranslations = new Map(dynamicBlocks.map(([, text, translation]) => [text, translation]));
+
 const viewportBlocks = [
   ['viewport-intro', 'Viewport introduction to shoreline tides.', '视口内的潮汐介绍。'],
   ['viewport-next', 'Viewport detail about estuary currents.', '视口内的河口潮流。'],
@@ -168,7 +177,7 @@ const server = createServer(async (request, response) => {
     }
     const content = pageSummary ? articleSummary : JSON.stringify(blocks.map(({ id, text: block }) => ({
       id,
-      text: articleTranslations[articleBlocks.indexOf(block)] || '未知段落译文',
+      text: articleTranslations[articleBlocks.indexOf(block)] || dynamicTranslations.get(block) || '未知段落译文',
     })).reverse());
     if (!response.destroyed) {
       response.writeHead(200).end(JSON.stringify({ choices: [{ message: { content } }] }));
@@ -779,7 +788,78 @@ try {
   await pageStatus.getByText('网页正文已变动，请重新启动翻译。').waitFor({ timeout: 6000 });
   assert.equal(requests.length, beforeChangedViewport, '正文原位变动后不得发送已经过期的段落');
 
-  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、取消旧结果、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译、整页失败恢复和网页重点总结');
+  await articlePage.goto(articleUrl);
+  await triggerContextMenu(worker, articleTab.id, 'translate-page');
+  await pageStatus.getByRole('button', { name: '移除译文' }).waitFor();
+  const oldTranslation = await pageTranslations.first().elementHandle();
+  const beforeDynamic = requests.length;
+  await articlePage.locator('article').evaluate((article, [first, second]) => {
+    for (const [id, text] of [first, second]) {
+      const paragraph = document.createElement('p');
+      paragraph.id = id;
+      paragraph.textContent = text;
+      if (id === second[0]) paragraph.style.marginTop = '220vh';
+      article.append(paragraph);
+    }
+    const nav = document.createElement('nav');
+    nav.textContent = 'Inserted navigation must remain private.';
+    article.append(nav);
+  }, dynamicBlocks.slice(0, 2));
+  await pageTranslations.filter({ hasText: dynamicBlocks[0][2] }).waitFor({ timeout: 6000 });
+  assert.deepEqual(requestedPageText(beforeDynamic), [dynamicBlocks[0][1]],
+    '静止时仅发送新出现且接近当前阅读位置的正文');
+  assert.equal(await oldTranslation.evaluate((node) => node.isConnected), true,
+    '已有译文的原始节点应保持不变');
+
+  await articlePage.locator('#dynamic-far').evaluate((paragraph) => paragraph.scrollIntoView());
+  await pageTranslations.filter({ hasText: dynamicBlocks[1][2] }).waitFor({ timeout: 6000 });
+  await pageStatus.getByRole('button', { name: '移除译文' }).waitFor();
+  assert.deepEqual(requestedPageText(beforeDynamic), dynamicBlocks.slice(0, 2).map(([, text]) => text),
+    '远处新增正文应在滚动到该处后发送');
+
+  delayedPageTranslation = { gate: deferred(), finished: deferred() };
+  const beforeReplacement = requests.length;
+  await articlePage.locator('#dynamic-far').evaluate((paragraph, [id, text]) => {
+    const pending = document.createElement('p');
+    pending.id = id;
+    pending.textContent = text;
+    paragraph.after(pending);
+  }, dynamicBlocks[2]);
+  await waitUntil(() => requests.length > beforeReplacement, '动态旧段落请求正在等待');
+  await articlePage.locator('#dynamic-detached').evaluate((paragraph, [id, text]) => {
+    const replacement = document.createElement('p');
+    replacement.id = id;
+    replacement.textContent = text;
+    paragraph.replaceWith(replacement);
+  }, dynamicBlocks[3]);
+  const removedRequest = delayedPageTranslation;
+  delayedPageTranslation = undefined;
+  removedRequest.gate.resolve();
+  await removedRequest.finished.promise;
+  await pageTranslations.filter({ hasText: dynamicBlocks[3][2] }).waitFor({ timeout: 6000 });
+  assert.equal(await pageTranslations.filter({ hasText: dynamicBlocks[2][2] }).count(), 0);
+  assert.deepEqual(requestedPageText(beforeReplacement), dynamicBlocks.slice(2).map(([, text]) => text),
+    '替换正文时丢弃已移除段落的迟到结果并按需翻译新节点');
+
+  const replacedTranslation = await pageTranslations.filter({ hasText: dynamicBlocks[3][2] }).elementHandle();
+  const beforeIdenticalRender = requests.length;
+  await articlePage.locator('#dynamic-replacement').evaluate((paragraph) => paragraph.replaceWith(paragraph.cloneNode(true)));
+  await waitUntil(async () => !await replacedTranslation.evaluate((element) => element.isConnected),
+    '重新渲染相同的正文后移除旧译文节点');
+  await pageTranslations.filter({ hasText: dynamicBlocks[3][2] }).waitFor({ timeout: 6000 });
+  assert.equal(requests.length, beforeIdenticalRender, '重新渲染相同原文时复用本会话的译文');
+
+  await pageStatus.getByRole('button', { name: '移除译文' }).click();
+  const beforeDynamicCancel = requests.length;
+  await articlePage.locator('#dynamic-replacement').evaluate((paragraph) => {
+    const another = document.createElement('p');
+    another.textContent = 'Inserted after cancellation.';
+    paragraph.after(another);
+  });
+  await articlePage.waitForTimeout(300);
+  assert.equal(requests.length, beforeDynamicCancel, '取消后监听停止，不再提交动态正文');
+
+  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、取消旧结果、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译、整页失败恢复、动态正文和网页重点总结');
   console.log('Mock POST requests: ' + requests.map((item) => item.text).join(', '));
 } finally {
   releaseSlowResponse?.();
