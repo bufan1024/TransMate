@@ -1,4 +1,4 @@
-import { selectionStorageKey, selectionWindowIdFromKey, shouldAcceptSelection } from './lib/selection.js';
+import { compareSelections, selectionStorageKey, selectionWindowIdFromKey, shouldAcceptSelection } from './lib/selection.js';
 import { createPageActions, PAGE_TRANSLATION_MENU, PAGE_SUMMARY_MENU } from './lib/page-actions.js';
 import { DEFAULT_SETTINGS, TARGET_LANGUAGES } from './lib/config.js';
 import { translate } from './lib/translator.js';
@@ -9,6 +9,8 @@ const INLINE_SCRIPT = 'content-script.js';
 const INLINE_SESSION_PREFIX = 'inlineSelection:';
 const INLINE_RETRY = 'TRANSMATE_INLINE_RETRY';
 const INLINE_SWITCH_LANGUAGE = 'TRANSMATE_INLINE_SWITCH_LANGUAGE';
+const INLINE_OPEN_PANEL = 'TRANSMATE_INLINE_OPEN_PANEL';
+const INLINE_EXPORT_RESULT = 'TRANSMATE_INLINE_EXPORT_RESULT';
 const SHORTCUT_HINT = '请先选中文字，再按快捷键翻译。';
 const languageNames = new Intl.DisplayNames('zh-CN', { type: 'language', fallback: 'none' });
 
@@ -82,6 +84,7 @@ export function registerBackground(chromeApi, {
   let lastInlineOrder = 0;
   const activeByTab = new Map();
   const latestIntentByTab = new Map();
+  const latestPanelSelectionByWindow = new Map();
   // local storage is otherwise exposed to content scripts by default. Keep
   // provider credentials in trusted extension contexts before injecting one.
   const privateStorageReady = Promise.all([
@@ -153,8 +156,9 @@ export function registerBackground(chromeApi, {
     const items = await chromeApi.storage.session.get(null);
     const prefix = `${INLINE_SESSION_PREFIX}${tabId}:`;
     const activeId = activeByTab.get(tabId)?.requestId;
-    const keys = Object.keys(items).filter((key) => key.startsWith(prefix)
-      && key !== inlineSessionKey(tabId, activeId));
+    const keys = Object.keys(items).filter((key) => (key.startsWith(prefix)
+      && key !== inlineSessionKey(tabId, activeId))
+      || (selectionWindowIdFromKey(key) !== null && items[key]?.tabId === tabId && items[key]?.result));
     if (hide) {
       await Promise.allSettled(keys.map((key) => {
         const saved = items[key];
@@ -186,26 +190,32 @@ export function registerBackground(chromeApi, {
     return latestIntentByTab.get(tabId) === order;
   }
 
-  function fallbackToPanel(text, windowId) {
-    if (!Number.isInteger(windowId)) return;
+  function createPanelSelection(windowId) {
     const createdAt = Date.now();
     lastSelectionOrder = Math.max(createdAt * 1000, lastSelectionOrder + 1);
-    const pendingSelection = {
-      id: crypto.randomUUID(), text, createdAt, order: lastSelectionOrder, windowId,
-    };
-    const key = selectionStorageKey(windowId, pendingSelection.id);
-    chromeApi.storage.session.set({ [key]: pendingSelection })
+    latestPanelSelectionByWindow.set(windowId, lastSelectionOrder);
+    return { id: crypto.randomUUID(), createdAt, order: lastSelectionOrder, windowId };
+  }
+
+  async function prunePanelSelections(selection) {
+    const items = await chromeApi.storage.session.get(null);
+    const obsolete = Object.entries(items).filter(([key, item]) => {
+      const windowId = selectionWindowIdFromKey(key);
+      return windowId !== null && (!shouldAcceptSelection(item, windowId)
+        || (item.result && windowId === selection.windowId && compareSelections(item, selection) < 0));
+    }).map(([key]) => key);
+    if (obsolete.length) await chromeApi.storage.session.remove(obsolete);
+  }
+
+  function fallbackToPanel(text, windowId) {
+    if (!Number.isInteger(windowId)) return;
+    const selection = { ...createPanelSelection(windowId), text };
+    const key = selectionStorageKey(windowId, selection.id);
+    chromeApi.storage.session.set({ [key]: selection })
       .catch(() => console.warn('无法保存选中的文字'));
     chromeApi.sidePanel.open({ windowId })
       .catch(() => console.warn('无法打开翻译侧边栏'));
-
-    chromeApi.storage.session.get(null).then((items) => {
-      const expiredKeys = Object.entries(items).filter(([itemKey, item]) => {
-        const itemWindowId = selectionWindowIdFromKey(itemKey);
-        return itemWindowId !== null && !shouldAcceptSelection(item, itemWindowId);
-      }).map(([itemKey]) => itemKey);
-      if (expiredKeys.length) return chromeApi.storage.session.remove(expiredKeys);
-    }).catch(() => console.warn('无法清理过期选文'));
+    void prunePanelSelections(selection).catch(() => console.warn('无法清理过期选文'));
   }
 
   async function readSettings(entry) {
@@ -447,6 +457,41 @@ export function registerBackground(chromeApi, {
     return entry;
   }
 
+  async function openInlinePanel(message, sender) {
+    const { id: tabId, windowId } = sender?.tab || {};
+    if (sender?.id !== chromeApi.runtime.id || !Number.isInteger(tabId) || !Number.isInteger(windowId)
+        || !Number.isInteger(sender.frameId) || !sender.documentId
+        || typeof message.requestId !== 'string' || !message.requestId) return { ok: false };
+    const matches = (entry) => entry && !entry.notice && !entry.configInvalidated
+      && entry.requestId === message.requestId && entry.windowId === windowId
+      && entry.documentId === sender.documentId && senderMatches(entry, sender);
+    const active = activeByTab.get(tabId);
+    if (active && !matches(active)) return { ok: false };
+
+    // Chrome requires this call to run in the click's activation. The persisted
+    // request and current document are checked before the side panel gets data.
+    const opened = chromeApi.sidePanel.open({ windowId }).then(() => true, () => false);
+    const selection = createPanelSelection(windowId);
+    const entry = await recoverEntry(message, sender);
+    if (!matches(entry) || !current(entry)) return { ok: false };
+    const exported = send(entry, { type: INLINE_EXPORT_RESULT, requestId: entry.requestId });
+    const [result, didOpen] = await Promise.all([exported, opened]);
+    const target = configuredTarget({ targetLanguage: result?.targetLanguageId });
+    if (!didOpen || !current(entry) || !matches(entry)
+        || latestPanelSelectionByWindow.get(windowId) !== selection.order
+        || typeof result?.translation !== 'string' || !result.translation.trim()
+        || !target) return { ok: false };
+
+    const completed = {
+      ...selection, tabId, text: entry.text,
+      result: { translation: result.translation, ...targetLanguageInfo(target) },
+    };
+    const key = selectionStorageKey(windowId, completed.id);
+    await chromeApi.storage.session.set({ [key]: completed });
+    void prunePanelSelections(completed).catch(() => console.warn('无法清理过期选文'));
+    return { ok: true };
+  }
+
   async function restart(entry, targetLanguageOverride) {
     entry.controller?.abort();
     const replacement = {
@@ -473,6 +518,7 @@ export function registerBackground(chromeApi, {
 
   async function onMessage(message, sender) {
     if (!message || typeof message !== 'object') return;
+    if (message.type === INLINE_OPEN_PANEL) return openInlinePanel(message, sender);
     if (message.type === 'TRANSMATE_PAGE_CANCEL' || message.type === 'TRANSMATE_PAGE_MORE') {
       return pageActions.handleMessage(message, sender);
     }
@@ -506,7 +552,8 @@ export function registerBackground(chromeApi, {
     void onCommand(command, tab).catch(() => console.warn('无法处理快捷键翻译'));
   });
   chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message?.type === INLINE_SWITCH_LANGUAGE || message?.type === INLINE_RETRY) {
+    if (message?.type === INLINE_SWITCH_LANGUAGE || message?.type === INLINE_RETRY
+        || message?.type === INLINE_OPEN_PANEL) {
       void onMessage(message, sender).then(sendResponse, () => sendResponse?.({ ok: false }));
       return true;
     }
@@ -531,6 +578,8 @@ export function registerBackground(chromeApi, {
     if (entry) cancel(entry, { hide: true });
     void forgetTab(tabId, { hide: true }).catch(() => {});
   });
+  chromeApi.windows?.onRemoved?.addListener((windowId) => latestPanelSelectionByWindow.delete(windowId));
+
   function invalidate(entry) {
     if (entry.notice) return;
     if (entry.configInvalidated) return;

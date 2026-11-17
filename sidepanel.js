@@ -10,6 +10,7 @@ const elements = {
   count: document.querySelector("#source-count"),
   target: document.querySelector("#target-language"),
   defaultTarget: document.querySelector("#target-label"),
+  handoffTarget: document.querySelector("#handoff-target"),
   translate: document.querySelector("#translate-button"),
   stop: document.querySelector("#stop-button"),
   clear: document.querySelector("#clear-source"),
@@ -29,6 +30,7 @@ const elements = {
 
 let settings = { ...DEFAULT_SETTINGS };
 let temporaryTarget = "";
+let legacyTarget = null;
 let pendingSelection = null;
 let handledSelectionId = null;
 let consumingSelectionId = null;
@@ -76,6 +78,9 @@ function updateControls() {
   const defaultTarget = typeof settings.targetLanguage === "string" ? settings.targetLanguage.trim() : "";
   const defaultName = TARGET_LANGUAGES.find(({ id }) => id === defaultTarget)?.name || defaultTarget;
   elements.defaultTarget.textContent = defaultName ? `${defaultName}（默认）` : "设置中的默认语言";
+  elements.handoffTarget.hidden = !legacyTarget;
+  elements.handoffTarget.value = legacyTarget?.targetLanguageId || "";
+  elements.handoffTarget.textContent = legacyTarget?.targetLanguage || "";
   if (elements.target.value !== temporaryTarget) elements.target.value = temporaryTarget;
   elements.banner.hidden = ready;
   elements.bannerMessage.textContent = "先配置 AI 服务，即可开始翻译。";
@@ -199,28 +204,41 @@ function acceptSelection(key, selection) {
   elements.input.value = selection.text;
   invalidateTranslation();
   updateControls();
-  maybeTranslateSelection();
+  consumePendingSelection();
 }
 
-function maybeTranslateSelection() {
+function consumePendingSelection() {
   if (!pendingSelection || pendingSelection.id === handledSelectionId
-      || pendingSelection.id === consumingSelectionId || !normalizedSettings(effectiveTarget())) return;
+      || pendingSelection.id === consumingSelectionId) return;
   if (!shouldAcceptSelection(pendingSelection, currentWindowId)) {
     discardSelection(pendingSelection.storageKey);
     pendingSelection = null;
+    updateControls();
     return;
   }
   const selected = pendingSelection;
+  if (!selected.result && !normalizedSettings(effectiveTarget())) return;
   consumingSelectionId = selected.id;
-  // Remove this immutable event before requesting a paid translation. A newer
-  // event uses another key and cannot be removed by this delayed operation.
+  // Remove the event before displaying its result or translating its text. A
+  // newer event has a separate key and can still supersede this operation.
   chrome.storage.session.remove(selected.storageKey).then(() => {
     if (pendingSelection?.id !== selected.id || newestSelection?.id !== selected.id
-        || !normalizedSettings(effectiveTarget())) return;
+        || (!selected.result && !normalizedSettings(effectiveTarget()))) return;
     handledSelectionId = selected.id;
     pendingSelection = null;
     consumingSelectionId = null;
-    runTranslation(selected.text);
+    if (selected.result) {
+      const { targetLanguageId } = selected.result;
+      if (effectiveTarget() !== targetLanguageId) temporaryTarget = targetLanguageId;
+      legacyTarget = temporaryTarget && !TARGET_LANGUAGES.some(({ id }) => id === temporaryTarget)
+        ? { targetLanguageId, targetLanguage: selected.result.targetLanguage } : null;
+      currentText = selected.text;
+      translation = selected.result.translation;
+      showResult("success", translation);
+      updateControls();
+    } else {
+      runTranslation(selected.text);
+    }
   }).catch(() => {
     if (pendingSelection?.id === selected.id) {
       showResult("error", "无法清理选文状态。请编辑原文后再手动翻译。");
@@ -257,6 +275,7 @@ elements.target.addEventListener("change", () => {
   const selected = elements.target.value;
   if (!selected || TARGET_LANGUAGES.some(({ id }) => id === selected)) {
     temporaryTarget = selected;
+    legacyTarget = null;
   }
   if (previousTarget !== effectiveTarget() && (activeRequest || translation)) {
     const text = currentText;
@@ -264,7 +283,7 @@ elements.target.addEventListener("change", () => {
     runTranslation(text);
   } else {
     updateControls();
-    maybeTranslateSelection();
+    consumePendingSelection();
   }
 });
 elements.retry.addEventListener("click", () => runTranslation(currentText));
@@ -298,7 +317,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (translationSettingsChanged(nextSettings)) summaryPanel.reset();
     settings = nextSettings;
     updateControls();
-    maybeTranslateSelection();
+    consumePendingSelection();
   }
   if (area === "session") {
     for (const [key, change] of Object.entries(changes)) {
@@ -351,7 +370,7 @@ async function initialize() {
       if (latest) acceptSelection(...latest);
     }
     queuedSelections.clear();
-    maybeTranslateSelection();
+    consumePendingSelection();
   } catch (error) {
     showResult("error", `无法读取扩展设置：${errorMessage(error)}`);
   }

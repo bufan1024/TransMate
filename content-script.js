@@ -10,6 +10,8 @@
     cancel: 'TRANSMATE_INLINE_CANCEL',
     retry: 'TRANSMATE_INLINE_RETRY',
     switchLanguage: 'TRANSMATE_INLINE_SWITCH_LANGUAGE',
+    openPanel: 'TRANSMATE_INLINE_OPEN_PANEL',
+    exportResult: 'TRANSMATE_INLINE_EXPORT_RESULT',
     options: 'TRANSMATE_INLINE_OPEN_OPTIONS',
   };
   const WATCHDOG_MS = 30_000;
@@ -20,6 +22,7 @@
     invalidatedRequestId: null,
     latestOrder: 0,
     restart: null,
+    panelRequestId: null,
     notice: false,
     source: '',
     sourceExpanded: false,
@@ -388,6 +391,7 @@
     state.requestId = null;
     state.invalidatedRequestId = null;
     state.restart = null;
+    state.panelRequestId = null;
     state.translation = '';
     state.error = '';
     state.anchor = null;
@@ -422,6 +426,7 @@
     if (!state.requestId || state.notice || state.restart) return;
     const restart = { requestId: state.requestId, targetLanguage, queuedLanguage: null, replacementId: null };
     state.restart = restart;
+    state.panelRequestId = null;
     state.status = 'loading';
     state.translation = '';
     state.error = '';
@@ -527,11 +532,12 @@
     const optionsButton = element('button', 'action', '去设置');
     const retryButton = element('button', 'action', '重试');
     const stopButton = element('button', 'action', '停止翻译');
+    const panelButton = element('button', 'action', '在侧栏打开');
     const copyButton = element('button', 'action primary');
     const copyLabel = element('span', '', '复制译文');
     copyButton.append(icon('M9 8h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2ZM16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h1'), copyLabel);
-    for (const button of [optionsButton, retryButton, stopButton, copyButton]) button.type = 'button';
-    footer.append(copyButton, retryButton, optionsButton, stopButton);
+    for (const button of [optionsButton, retryButton, stopButton, panelButton, copyButton]) button.type = 'button';
+    footer.append(copyButton, panelButton, retryButton, optionsButton, stopButton);
     card.append(header, body, footer, announcement);
     shadow.append(card);
     document.documentElement.append(host);
@@ -564,6 +570,23 @@
     retryButton.addEventListener('click', (event) => {
       if (event.isTrusted && state.status !== 'loading') restartTranslation();
     });
+    panelButton.addEventListener('click', async (event) => {
+      const requestId = state.requestId;
+      if (!event.isTrusted || !requestId || state.status !== 'success' || state.panelRequestId) return;
+      state.panelRequestId = requestId;
+      panelButton.disabled = true;
+      panelButton.textContent = '正在打开…';
+      const response = await send({ type: MESSAGE.openPanel, requestId }).catch(() => null);
+      if (state.panelRequestId !== requestId) return;
+      state.panelRequestId = null;
+      if (response?.ok) {
+        close(true, { restoreFocus: false });
+      } else {
+        panelButton.disabled = false;
+        panelButton.textContent = '重试打开侧栏';
+        announcement.textContent = '无法打开侧栏，请重试。';
+      }
+    });
     copyButton.addEventListener('click', async (event) => {
       if (!event.isTrusted) return;
       if (state.status !== 'success' || !state.translation) return;
@@ -587,7 +610,7 @@
     state.host = host;
     state.elements = {
       card, heading, targetPicker, targetSelect, body, sourceSection, source, sourceToggle, loading, result, error, announcement,
-      footer, retryButton, optionsButton, stopButton, copyButton, copyLabel,
+      footer, retryButton, optionsButton, stopButton, panelButton, copyButton, copyLabel,
     };
     new ResizeObserver(schedulePosition).observe(body);
     return true;
@@ -620,7 +643,7 @@
     if (!state.elements) return;
     const {
       card, sourceSection, source, loading, result, error, announcement, footer,
-      retryButton, optionsButton, stopButton, copyButton, copyLabel,
+      retryButton, optionsButton, stopButton, panelButton, copyButton, copyLabel,
     } = state.elements;
     const focused = state.host.shadowRoot.activeElement;
     const succeeded = state.status === 'success';
@@ -643,6 +666,9 @@
     optionsButton.hidden = !failed;
     optionsButton.classList.toggle('primary', needsSettings);
     retryButton.classList.toggle('primary', failed && !needsSettings);
+    panelButton.hidden = !succeeded;
+    panelButton.disabled = Boolean(state.panelRequestId);
+    panelButton.textContent = state.panelRequestId ? '正在打开…' : '在侧栏打开';
     copyButton.hidden = !succeeded;
     copyLabel.textContent = '复制译文';
     stopButton.hidden = !pending;
@@ -670,6 +696,7 @@
     if (state.copyReset !== null) clearTimeout(state.copyReset);
     state.copyReset = null;
     state.requestId = message.requestId;
+    state.panelRequestId = null;
     state.invalidatedRequestId = null;
     state.latestOrder = message.order;
     state.notice = message.notice === true;
@@ -716,6 +743,13 @@
       sendResponse({ ok: show(message) });
       return;
     }
+    if (message.type === MESSAGE.exportResult) {
+      const requestId = state.panelRequestId;
+      sendResponse(requestId && message.requestId === requestId && state.requestId === requestId
+        && state.status === 'success'
+        ? { translation: state.translation, targetLanguageId: state.targetLanguageId } : {});
+      return;
+    }
     if (message.type === MESSAGE.result) {
       if (message.requestId !== state.requestId) {
         sendResponse({ ok: false });
@@ -745,6 +779,7 @@
       }
       clearWatchdog();
       state.invalidatedRequestId = message.requestId;
+      state.panelRequestId = null;
       state.status = 'error';
       state.translation = '';
       state.error = typeof message.error === 'string' && message.error.trim()
@@ -770,7 +805,7 @@
     event.stopPropagation();
   }, true);
   window.addEventListener('blur', () => {
-    if (state.requestId) close(true, { restoreFocus: false });
+    if (state.requestId && !state.panelRequestId) close(true, { restoreFocus: false });
   });
   window.addEventListener('resize', schedulePosition);
   window.addEventListener('scroll', schedulePosition, true);
