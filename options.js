@@ -10,6 +10,8 @@ const modelInput = document.querySelector("#model");
 const targetInput = document.querySelector("#target-language");
 const promptInput = document.querySelector("#prompt");
 const status = document.querySelector("#form-status");
+const statusMessage = document.querySelector("#form-status-message");
+const saveTestedButton = document.querySelector("#save-tested-settings");
 const saveButton = document.querySelector("#save-settings");
 const testButton = document.querySelector("#test-connection");
 const keyStatus = document.querySelector("#key-status");
@@ -149,15 +151,22 @@ async function revokeOrigin(origin) {
   }
 }
 
-function showStatus(message, tone) {
-  status.textContent = message;
+function showStatus(message, tone, { connectionResult = false, offerSave = false } = {}) {
+  statusMessage.textContent = message;
   status.dataset.tone = tone;
+  status.dataset.connectionResult = String(connectionResult);
+  saveTestedButton.hidden = !offerSave;
   status.hidden = false;
+}
+
+function matchesConfig(config, candidate) {
+  return Boolean(candidate && Object.entries(config).every(([key, value]) => candidate[key] === value));
 }
 
 function setBusy(busy, mode = "save") {
   operationBusy = busy;
   saveButton.disabled = busy;
+  saveTestedButton.disabled = busy;
   testButton.disabled = busy && mode !== "test";
   clearKeyButton.disabled = busy;
   resetButton.disabled = busy;
@@ -307,8 +316,24 @@ testButton.addEventListener("click", async () => {
     config = resolveSettings(draft, current);
     const { translation, durationMs } = await checkConnection({ settings: config, signal: check.controller.signal });
     if (activeConnectionCheck !== check) return;
+    const latestSaved = await readSavedSettings();
+    if (activeConnectionCheck !== check) return;
+    let latestDraft;
+    try {
+      latestDraft = resolveSettings(draft, latestSaved);
+    } catch {
+      // The draft may have depended on a saved key that changed during the check.
+    }
+    if (!matchesConfig(config, latestDraft)) {
+      showStatus("已收到示例译文，但本机配置在检测期间发生变化，请重新检测。", "working");
+      return;
+    }
+    const alreadySaved = matchesConfig(config, latestSaved);
     const sample = translation.length > 120 ? `${translation.slice(0, 120)}…` : translation;
-    showStatus(`连接正常，已收到有效译文（${(durationMs / 1000).toFixed(1)} 秒）。示例译文：「${sample}」。检测本身不会保存配置。`, "success");
+    const resultMessage = `连接正常，已收到有效译文（${(durationMs / 1000).toFixed(1)} 秒）。示例译文：「${sample}」。`;
+    showStatus(resultMessage + (alreadySaved ? "当前配置已保存。" : "当前草稿尚未保存。"), "success", {
+      connectionResult: true, offerSave: !alreadySaved,
+    });
   } catch (error) {
     if (activeConnectionCheck !== check) return;
     const message = error instanceof Error ? error.message : "请检查配置后重试。";
@@ -378,6 +403,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes.settings) {
     savedSettings = changes.settings.newValue || null;
     renderKeyStatus();
+    if (!status.hidden && status.dataset.connectionResult === "true") {
+      showStatus("本机配置已更新，请重新检测当前表单。", "working");
+    }
   }
 });
 
