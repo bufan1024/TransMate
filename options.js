@@ -93,8 +93,9 @@ function renderKeyStatus() {
   const claude = draft.provider === "anthropic";
   claudeWorkspace.hidden = !claude;
   apiKeyField.hidden = draft.authType === "none";
-  endpointInput.placeholder = claude ? "https://api.anthropic.com/v1/messages" : "https://example.com/v1/chat/completions";
+  endpointInput.placeholder = providerById(draft.provider)?.endpoint || "https://example.com/v1/chat/completions";
   if (claude) endpointHelp.textContent = "填写以 /v1/messages 结尾的 Claude Messages 接口地址。";
+  else if (draft.provider === "gemini") endpointHelp.textContent = "填写 Gemini API 基础地址，以 /v1beta 或 /v1 结尾。模型 ID 在下方填写。";
   else if (draft.provider === "custom") endpointHelp.textContent = "填写服务的完整 Chat Completions 请求地址。自定义接口可使用不同路径。";
   else endpointHelp.textContent = "填写完整的 Chat Completions 接口地址。仅本机服务可使用 HTTP。";
   if (draft.apiKey) keyStatus.textContent = "将使用新填写的密钥；保存后才写入本机。";

@@ -25,6 +25,7 @@ test('provider presets point to their documented API endpoints', () => {
       { id: 'deepseek', endpoint: 'https://api.deepseek.com/chat/completions' },
       { id: 'openrouter', endpoint: 'https://openrouter.ai/api/v1/chat/completions' },
       { id: 'anthropic', endpoint: 'https://api.anthropic.com/v1/messages' },
+      { id: 'gemini', endpoint: 'https://generativelanguage.googleapis.com/v1beta' },
     ],
   );
   assert.equal(DEFAULT_SETTINGS.provider, 'openai');
@@ -43,6 +44,26 @@ test('Claude settings select its Messages path and optional workspace ID', () =>
 
 test('default target language uses the options select value for Simplified Chinese', () => {
   assert.equal(DEFAULT_SETTINGS.targetLanguage, 'zh-CN');
+});
+
+test('Gemini validates an API base URL and a single model path segment', () => {
+  const input = { ...valid, provider: 'gemini', endpoint: '', model: 'models/gemini-example' };
+  assert.equal(validateSettings(input).endpoint, 'https://generativelanguage.googleapis.com/v1beta');
+  assert.equal(validateSettings(input).model, 'models/gemini-example');
+  assert.equal(originPatternForEndpoint('https://generativelanguage.googleapis.com/v1beta', 'gemini'),
+    'https://generativelanguage.googleapis.com/*');
+  assert.equal(validateSettings({ ...input, endpoint: 'http://localhost:3000/v1/' }).endpoint,
+    'http://localhost:3000/v1/');
+  for (const endpoint of [
+    'https://generativelanguage.googleapis.com/v1beta?key=fixture',
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-example:generateContent',
+    'https://generativelanguage.googleapis.com/v1/chat/completions',
+  ]) {
+    assert.throws(() => validateSettings({ ...input, endpoint }), /地址/);
+  }
+  for (const model of ['models/../secret', 'gemini-x?key=fixture', 'models//gemini-x', 'model with spaces']) {
+    assert.throws(() => validateSettings({ ...input, model }), /模型 ID/);
+  }
 });
 
 test('validateSettings trims editable fields and keeps a custom prompt', () => {
