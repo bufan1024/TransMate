@@ -21,6 +21,8 @@ function fakeElement() {
   return {
     value: '', textContent: '', hidden: false, disabled: false, style: {},
     append() {},
+    querySelectorAll() { return []; },
+    replaceChildren() {},
     addEventListener(type, listener) {
       const list = listeners.get(type) || [];
       list.push(listener);

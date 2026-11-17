@@ -427,6 +427,8 @@ try {
   await panel.locator('#result-text').waitFor({ state: 'visible' });
   assert.equal(await panel.locator('#result-text').textContent(), '侧栏译文');
 
+
+
   const originalPanelSize = panel.viewportSize();
   const beforeComparison = requests.length;
   await panel.setViewportSize({ width: 340, height: 780 });
@@ -448,6 +450,27 @@ try {
   assert.equal(await panel.locator('#source-text').isVisible(), true);
   await panel.setViewportSize(originalPanelSize);
   assert.equal(requests.length, beforeComparison, '切换对照布局不发送翻译请求');
+
+  assert.equal(await options.evaluate(async () => (await chrome.storage.local.get('translationHistory')).translationHistory), undefined);
+  await panel.getByText('翻译历史', { exact: true }).click();
+  const historyEnabled = panel.getByRole('checkbox', { name: '在本机记录' });
+  await historyEnabled.check();
+  await waitUntil(async () => (await options.evaluate(async () =>
+    (await chrome.storage.local.get('translationHistory')).translationHistory))?.enabled, '启用记录后写入本机设置');
+  await panel.locator('#source-text').fill('history example');
+  await panel.locator('#translate-button').click();
+  await panel.locator('#translation-history-list summary').filter({ hasText: 'history example' }).click();
+  const historyItem = panel.locator('#translation-history-list li');
+  await historyItem.locator('.history-result').waitFor();
+  await historyItem.getByRole('button', { name: '删除此条翻译历史' }).click();
+  await historyItem.waitFor({ state: 'detached' });
+  await panel.locator('#source-text').fill('another history example');
+  await panel.locator('#translate-button').click();
+  await historyItem.waitFor();
+  await historyEnabled.uncheck();
+  await historyItem.waitFor();
+  await panel.getByRole('button', { name: '清空历史' }).click();
+  await historyItem.waitFor({ state: 'detached' });
 
   await panel.locator('#source-text').fill('slow cancel');
   await panel.locator('#translate-button').click();
@@ -585,12 +608,22 @@ try {
   const initialPageCount = context.pages().length;
 
   await inlinePage.locator('#fixture-control').focus();
+  await options.evaluate(() => chrome.storage.local.set({
+    translationHistory: { enabled: true, entries: [] },
+  }));
   let selectedText = await selectFixtureText(inlinePage, 'inline-first');
   assert.equal(selectedText, 'inline hello');
   await triggerContextMenu(worker, inlineTabId, 'translate-selection', selectedText);
   await inlineHost.locator('.result').waitFor({ state: 'visible' });
   assert.equal(await inlineHost.locator('.source').textContent(), selectedText);
   assert.equal(await inlineHost.locator('.result').textContent(), '页内译文');
+  await waitUntil(async () => {
+    const { translationHistory } = await options.evaluate(() => chrome.storage.local.get('translationHistory'));
+    return translationHistory?.entries.some((entry) => entry.source === selectedText && entry.translation === '页内译文');
+  }, '划词译文应写入已启用的本机历史');
+  await options.evaluate(() => chrome.storage.local.set({
+    translationHistory: { enabled: false, entries: [] },
+  }));
   assert.equal(await inlineTarget.inputValue(), saved.targetLanguage);
   assert.equal(await inlineHost.getByRole('button', { name: '复制译文' }).isVisible(), true);
   assert.equal(requests.filter((item) => item.text === selectedText).length, 1);

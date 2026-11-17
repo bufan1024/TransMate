@@ -1,6 +1,8 @@
 import { DEFAULT_SETTINGS, TARGET_LANGUAGES, validateSettings } from "./lib/config.js";
 import { createPageSummaryPanel } from "./lib/page-summary-panel.js";
 import { compareSelections, selectionStorageKey, selectionStoragePrefix, selectionWindowIdFromKey, shouldAcceptSelection } from "./lib/selection.js";
+import { createHistoryPanel } from "./lib/history-panel.js";
+import { HISTORY_KEY, recordTranslation } from "./lib/translation-history.js";
 import { translate } from "./lib/translator.js";
 
 const MAX_TEXT_LENGTH = 5000;
@@ -48,6 +50,7 @@ let currentWindowId = null;
 let settingsChangeVersion = 0;
 const queuedSelections = new Map();
 const summaryPanel = createPageSummaryPanel(chrome, document, normalizedSettings);
+const historyPanel = createHistoryPanel(chrome, document);
 
 function openSettings() {
   chrome.runtime.openOptionsPage();
@@ -184,6 +187,9 @@ async function runTranslation(text) {
     if (thisRequest !== requestNumber) return;
     translation = result;
     showResult("success", result);
+    void recordTranslation(chrome.storage.local, globalThis.navigator?.locks, {
+      source: trimmed, translation: result, targetLanguage: config.targetLanguage,
+    }).catch(() => {});
   } catch (error) {
     if (thisRequest !== requestNumber) return;
     if (timedOut) showResult("error", "连接超时（45 秒）。请检查服务状态后重试。");
@@ -335,6 +341,7 @@ document.querySelector("#open-settings").addEventListener("click", openSettings)
 document.querySelector("#banner-settings").addEventListener("click", openSettings);
 
 chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes[HISTORY_KEY]) historyPanel.receive(changes[HISTORY_KEY].newValue);
   if (area === "local" && changes.settings) {
     settingsChangeVersion += 1;
     const nextSettings = { ...DEFAULT_SETTINGS, ...(changes.settings.newValue || {}) };
@@ -364,8 +371,9 @@ async function initialize() {
     } catch {
       // Selection cannot be routed safely; manual translation remains available.
     }
+    const historyVersion = historyPanel.version;
     const [storedSettings, session] = await Promise.all([
-      chrome.storage.local.get("settings"),
+      chrome.storage.local.get(["settings", HISTORY_KEY]),
       chrome.storage.session.get(null),
     ]);
     if (settingsChangeVersion === initialSettingsChangeVersion) {
@@ -373,6 +381,7 @@ async function initialize() {
     }
     updateControls();
     summaryPanel.initialize(currentWindowId, session);
+    historyPanel.initialize(storedSettings[HISTORY_KEY], historyVersion);
     if (currentWindowId !== null) {
       const prefix = selectionStoragePrefix(currentWindowId);
       const candidates = new Map([

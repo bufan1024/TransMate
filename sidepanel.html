@@ -92,6 +92,15 @@
             </section>
           </div>
         </div>
+        <details class="translation-history">
+          <summary>翻译历史</summary>
+          <div class="history-actions">
+            <label><input id="enable-translation-history" type="checkbox" disabled /> 在本机记录</label>
+            <button id="clear-translation-history" class="secondary-button" type="button" disabled>清空历史</button>
+          </div>
+          <p id="translation-history-status" role="status"></p>
+          <ul id="translation-history-list" aria-label="历史记录"></ul>
+        </details>
       </main>
 
       <footer><span class="footer-dot" aria-hidden="true"></span><span>文字仅发送至你配置的 AI 服务</span></footer>
