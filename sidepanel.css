@@ -38,6 +38,14 @@ button:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px sol
   font-size: 14px;
 }
 
+.page-summary-source {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .page-summary-status {
   margin: 0;
   color: var(--muted);
