@@ -5,7 +5,15 @@ import { fileURLToPath } from 'node:url';
 const extensionDirectory = dirname(dirname(fileURLToPath(import.meta.url)));
 const manifest = JSON.parse(await readFile(join(extensionDirectory, 'manifest.json'), 'utf8'));
 
-if (manifest.manifest_version !== 3 || !manifest.name?.includes('TransMate')) {
+let extensionName = manifest.name;
+const nameMessage = /^__MSG_([a-zA-Z0-9_]+)__$/.exec(extensionName || "");
+if (nameMessage && /^[a-zA-Z_]+$/.test(manifest.default_locale || "")) {
+  const localePath = join(extensionDirectory, "_locales", manifest.default_locale, "messages.json");
+  const messages = JSON.parse(await readFile(localePath, "utf8"));
+  extensionName = messages[nameMessage[1]]?.message;
+}
+
+if (manifest.manifest_version !== 3 || !extensionName?.includes('TransMate')) {
   throw new Error('This directory is not the expected TransMate Manifest V3 extension.');
 }
 
@@ -29,7 +37,7 @@ for (const relativePath of files) {
 
 process.stdout.write(JSON.stringify({
   extensionDirectory,
-  name: manifest.name,
+  name: extensionName,
   version: manifest.version,
   minimumChromeVersion: manifest.minimum_chrome_version,
   checkedResources: files.size,

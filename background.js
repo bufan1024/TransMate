@@ -1,3 +1,4 @@
+import { message as localize } from './lib/i18n.js';
 import { compareSelections, selectionStorageKey, selectionWindowIdFromKey, shouldAcceptSelection } from './lib/selection.js';
 import { createPageActions, PAGE_TRANSLATION_MENU, PAGE_SUMMARY_MENU, PANEL_PAGE_ACTION } from './lib/page-actions.js';
 import { DEFAULT_SETTINGS, TARGET_LANGUAGES } from './lib/config.js';
@@ -20,9 +21,9 @@ const INLINE_RETRY = 'TRANSMATE_INLINE_RETRY';
 const INLINE_SWITCH_LANGUAGE = 'TRANSMATE_INLINE_SWITCH_LANGUAGE';
 const INLINE_OPEN_PANEL = 'TRANSMATE_INLINE_OPEN_PANEL';
 const INLINE_EXPORT_RESULT = 'TRANSMATE_INLINE_EXPORT_RESULT';
-const SHORTCUT_HINT = '请先选中文字，再按快捷键翻译。';
+const SHORTCUT_HINT = localize('selectFirst', '请先选中文字，再按快捷键翻译。');
 const LONG_SELECTION_LIMIT = `选中内容最多支持 ${MAX_LONG_TEXT_LENGTH.toLocaleString('zh-CN')} 字符，请缩短选区后重试。`;
-const languageNames = new Intl.DisplayNames('zh-CN', { type: 'language', fallback: 'none' });
+const languageNames = new Intl.DisplayNames(localize('locale', 'zh-CN'), { type: 'language', fallback: 'none' });
 
 function displayTargetLanguage(language) {
   const supported = TARGET_LANGUAGES.find(({ id }) => id === language);
@@ -110,7 +111,7 @@ export function registerBackground(chromeApi, {
   chromeApi.runtime.onInstalled.addListener(() => {
     chromeApi.contextMenus.create({
       id: MENU_ID,
-      title: '用 TransMate 翻译',
+      title: localize('translateSelectionMenu', '用 TransMate 翻译'),
       contexts: ['selection'],
     });
     chromeApi.contextMenus.create({
@@ -119,7 +120,7 @@ export function registerBackground(chromeApi, {
     chromeApi.contextMenus.create({
       id: SITE_SETTINGS_MENU, title: '本站自动翻译设置', contexts: ['page'], documentUrlPatterns: SITE_MENU_PATTERNS,
     });
-    for (const [id, title] of [[PAGE_TRANSLATION_MENU, '整页双语翻译'], [PAGE_SUMMARY_MENU, '总结网页重点']]) {
+    for (const [id, title] of [[PAGE_TRANSLATION_MENU, localize('pageTranslateMenu', '整页双语翻译')], [PAGE_SUMMARY_MENU, localize('pageSummaryMenu', '总结网页重点')]]) {
       chromeApi.contextMenus.create({
         id, title, contexts: ['page'], documentUrlPatterns: ['http://*/*', 'https://*/*'],
       });
@@ -263,7 +264,7 @@ export function registerBackground(chromeApi, {
       ...(entry.text.length > MAX_TEXT_LENGTH ? { sourceOnly: true } : {}),
       ...languageData,
     });
-    if (response?.ok !== true) throw new Error('无法显示翻译浮层');
+    if (response?.ok !== true) throw new Error(localize('cannotDisplayCard', '无法显示翻译浮层'));
     entry.shown = true;
   }
 
@@ -273,7 +274,7 @@ export function registerBackground(chromeApi, {
       try {
         await send(entry, {
           type: 'TRANSMATE_INLINE_RESULT', requestId: entry.requestId,
-          error: '翻译配置已更新，请重试。',
+          error: localize('translationSettingsUpdated', '翻译配置已更新，请重试。'),
         });
       } catch {
         cancel(entry);
@@ -289,7 +290,7 @@ export function registerBackground(chromeApi, {
     }, timeoutMs);
     let onAbort;
     const interrupted = new Promise((_, reject) => {
-      onAbort = () => reject(new Error('翻译已取消。'));
+      onAbort = () => reject(new Error(localize('translationCancelled', '翻译已取消。')));
       controller.signal.addEventListener('abort', onAbort, { once: true });
     });
 
@@ -317,10 +318,10 @@ export function registerBackground(chromeApi, {
       };
     } catch (error) {
       const message = timedOut
-        ? `等待翻译超过 ${Math.ceil(timeoutMs / 1000)} 秒，请重试。`
+        ? localize('cardTimeout', `等待翻译超过 ${Math.ceil(timeoutMs / 1000)} 秒，请重试。`, Math.ceil(timeoutMs / 1000))
         : error instanceof Error && error.message
           ? error.message
-          : '翻译失败，请稍后重试。';
+          : localize('translationRetryLater', '翻译失败，请稍后重试。');
       result = { type: 'TRANSMATE_INLINE_RESULT', requestId: entry.requestId, error: message };
     } finally {
       clearTimeout(timeout);
@@ -333,7 +334,7 @@ export function registerBackground(chromeApi, {
       const response = await send(entry, timedOut
         ? {
           type: 'TRANSMATE_INLINE_RESULT', requestId: entry.requestId,
-          error: `等待翻译超过 ${Math.ceil(timeoutMs / 1000)} 秒，请重试。`,
+          error: localize('cardTimeout', `等待翻译超过 ${Math.ceil(timeoutMs / 1000)} 秒，请重试。`, Math.ceil(timeoutMs / 1000)),
         }
         : result);
       if (response?.ok !== true) cancel(entry);
@@ -353,7 +354,7 @@ export function registerBackground(chromeApi, {
       files: [INLINE_SCRIPT],
     });
     const frame = results?.[0];
-    if (!frame) throw new Error('无法注入翻译浮层');
+    if (!frame) throw new Error(localize('cannotInjectCard', '无法注入翻译浮层'));
     entry.frameId = Number.isInteger(frame.frameId) ? frame.frameId : frameId;
     entry.documentId = frame.documentId;
   }
@@ -370,7 +371,7 @@ export function registerBackground(chromeApi, {
     };
     activeByTab.set(tabId, entry);
     try {
-      if (!await privateStorageReady) throw new Error('无法保护本机配置');
+      if (!await privateStorageReady) throw new Error(localize('privateSettingsUnavailable', '无法保护本机配置'));
       if (!current(entry) || !intentCurrent(tabId, order)) return;
       try {
         await inject(entry, entry.frameId);
@@ -671,7 +672,7 @@ export function registerBackground(chromeApi, {
     if (!entry.shown) return;
     send(entry, {
       type: 'TRANSMATE_INLINE_INVALIDATE', requestId: entry.requestId,
-      error: '翻译配置已更新，请重试。',
+      error: localize('translationSettingsUpdated', '翻译配置已更新，请重试。'),
     }).then((response) => {
       if (response?.ok !== true) cancel(entry);
     }).catch(() => cancel(entry));
