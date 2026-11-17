@@ -1,25 +1,15 @@
-import { DEFAULT_SETTINGS, validateSettings } from "./lib/config.js";
+import { DEFAULT_SETTINGS, TARGET_LANGUAGES, validateSettings } from "./lib/config.js";
 import { createPageSummaryPanel } from "./lib/page-summary-panel.js";
 import { compareSelections, selectionStorageKey, selectionStoragePrefix, selectionWindowIdFromKey, shouldAcceptSelection } from "./lib/selection.js";
 import { translate } from "./lib/translator.js";
 
 const MAX_TEXT_LENGTH = 5000;
 const TRANSLATION_SETTING_KEYS = ["provider", "endpoint", "apiKey", "model", "targetLanguage", "prompt"];
-const targetNames = {
-  "zh-CN": "简体中文",
-  "zh-TW": "繁体中文",
-  en: "英语",
-  ja: "日语",
-  ko: "韩语",
-  fr: "法语",
-  de: "德语",
-  es: "西班牙语",
-};
-
 const elements = {
   input: document.querySelector("#source-text"),
   count: document.querySelector("#source-count"),
-  target: document.querySelector("#target-label"),
+  target: document.querySelector("#target-language"),
+  defaultTarget: document.querySelector("#target-label"),
   translate: document.querySelector("#translate-button"),
   stop: document.querySelector("#stop-button"),
   clear: document.querySelector("#clear-source"),
@@ -38,6 +28,7 @@ const elements = {
 };
 
 let settings = { ...DEFAULT_SETTINGS };
+let temporaryTarget = "";
 let pendingSelection = null;
 let handledSelectionId = null;
 let consumingSelectionId = null;
@@ -55,9 +46,14 @@ function openSettings() {
   chrome.runtime.openOptionsPage();
 }
 
-function normalizedSettings() {
+function effectiveTarget() {
+  const target = temporaryTarget || settings.targetLanguage;
+  return typeof target === "string" ? target.trim() : target;
+}
+
+function normalizedSettings(targetLanguage = settings.targetLanguage) {
   try {
-    return validateSettings(settings);
+    return validateSettings({ ...settings, targetLanguage });
   } catch {
     return null;
   }
@@ -65,7 +61,7 @@ function normalizedSettings() {
 
 function updateControls() {
   const length = elements.input.value.length;
-  const ready = Boolean(normalizedSettings());
+  const ready = Boolean(normalizedSettings(effectiveTarget()));
   const busy = Boolean(activeRequest);
   const focused = document.activeElement;
   elements.count.textContent = `${length.toLocaleString("zh-CN")} 字`;
@@ -77,7 +73,10 @@ function updateControls() {
   elements.stop.hidden = !busy;
   elements.retry.disabled = busy || consumingSelection || !currentText || !ready;
   elements.copy.disabled = !translation;
-  elements.target.textContent = `译为${targetNames[settings.targetLanguage] || settings.targetLanguage || "目标语言"}`;
+  const defaultTarget = typeof settings.targetLanguage === "string" ? settings.targetLanguage.trim() : "";
+  const defaultName = TARGET_LANGUAGES.find(({ id }) => id === defaultTarget)?.name || defaultTarget;
+  elements.defaultTarget.textContent = defaultName ? `${defaultName}（默认）` : "设置中的默认语言";
+  if (elements.target.value !== temporaryTarget) elements.target.value = temporaryTarget;
   elements.banner.hidden = ready;
   elements.bannerMessage.textContent = "先配置 AI 服务，即可开始翻译。";
   if (busy && (focused === elements.translate || focused === elements.retry)) elements.stop.focus();
@@ -99,8 +98,9 @@ function showResult(kind, value = "") {
   if (kind === "error") elements.errorMessage.textContent = value;
 }
 
-function translationSettingsChanged(nextSettings) {
-  return TRANSLATION_SETTING_KEYS.some((key) => settings[key] !== nextSettings[key]);
+function translationSettingsChanged(nextSettings, targetOverride = "") {
+  return TRANSLATION_SETTING_KEYS.some((key) => (key !== "targetLanguage" || !targetOverride)
+    && settings[key] !== nextSettings[key]);
 }
 
 function invalidateTranslation(kind = "empty") {
@@ -132,10 +132,8 @@ async function runTranslation(text) {
     showResult("error", `原文超过 ${MAX_TEXT_LENGTH.toLocaleString("zh-CN")} 字，请缩短后重试。`);
     return;
   }
-  let config;
-  try {
-    config = validateSettings(settings);
-  } catch {
+  const config = normalizedSettings(effectiveTarget());
+  if (!config) {
     elements.banner.hidden = false;
     showResult("error", "请先在设置中填写 AI 服务、模型和 API Key。");
     return;
@@ -206,7 +204,7 @@ function acceptSelection(key, selection) {
 
 function maybeTranslateSelection() {
   if (!pendingSelection || pendingSelection.id === handledSelectionId
-      || pendingSelection.id === consumingSelectionId || !normalizedSettings()) return;
+      || pendingSelection.id === consumingSelectionId || !normalizedSettings(effectiveTarget())) return;
   if (!shouldAcceptSelection(pendingSelection, currentWindowId)) {
     discardSelection(pendingSelection.storageKey);
     pendingSelection = null;
@@ -218,7 +216,7 @@ function maybeTranslateSelection() {
   // event uses another key and cannot be removed by this delayed operation.
   chrome.storage.session.remove(selected.storageKey).then(() => {
     if (pendingSelection?.id !== selected.id || newestSelection?.id !== selected.id
-        || !normalizedSettings()) return;
+        || !normalizedSettings(effectiveTarget())) return;
     handledSelectionId = selected.id;
     pendingSelection = null;
     consumingSelectionId = null;
@@ -254,6 +252,21 @@ elements.stop.addEventListener("click", () => {
   invalidateTranslation("stopped");
   updateControls();
 });
+elements.target.addEventListener("change", () => {
+  const previousTarget = effectiveTarget();
+  const selected = elements.target.value;
+  if (!selected || TARGET_LANGUAGES.some(({ id }) => id === selected)) {
+    temporaryTarget = selected;
+  }
+  if (previousTarget !== effectiveTarget() && (activeRequest || translation)) {
+    const text = currentText;
+    invalidateTranslation();
+    runTranslation(text);
+  } else {
+    updateControls();
+    maybeTranslateSelection();
+  }
+});
 elements.retry.addEventListener("click", () => runTranslation(currentText));
 elements.clear.addEventListener("click", () => {
   elements.input.value = "";
@@ -262,12 +275,16 @@ elements.clear.addEventListener("click", () => {
 });
 elements.copy.addEventListener("click", async () => {
   if (!translation) return;
+  const copiedRequest = requestNumber;
   try {
     await navigator.clipboard.writeText(translation);
+    if (copiedRequest !== requestNumber) return;
     elements.copyLabel.textContent = "已复制";
-    setTimeout(() => { elements.copyLabel.textContent = "复制译文"; }, 1800);
+    setTimeout(() => {
+      if (copiedRequest === requestNumber) elements.copyLabel.textContent = "复制译文";
+    }, 1800);
   } catch {
-    elements.copyLabel.textContent = "复制失败";
+    if (copiedRequest === requestNumber) elements.copyLabel.textContent = "复制失败";
   }
 });
 document.querySelector("#open-settings").addEventListener("click", openSettings);
@@ -277,10 +294,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes.settings) {
     settingsChangeVersion += 1;
     const nextSettings = { ...DEFAULT_SETTINGS, ...(changes.settings.newValue || {}) };
-    if (translationSettingsChanged(nextSettings)) {
-      invalidateTranslation();
-      summaryPanel.reset();
-    }
+    if (translationSettingsChanged(nextSettings, temporaryTarget)) invalidateTranslation();
+    if (translationSettingsChanged(nextSettings)) summaryPanel.reset();
     settings = nextSettings;
     updateControls();
     maybeTranslateSelection();
@@ -340,6 +355,14 @@ async function initialize() {
   } catch (error) {
     showResult("error", `无法读取扩展设置：${errorMessage(error)}`);
   }
+}
+
+const targetOptions = document.querySelector("#target-options");
+for (const { id, name } of TARGET_LANGUAGES) {
+  const option = document.createElement("option");
+  option.value = id;
+  option.textContent = name;
+  targetOptions.append(option);
 }
 
 showResult("empty");

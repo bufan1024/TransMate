@@ -18,6 +18,7 @@ function fakeElement() {
     hidden: false,
     disabled: false,
     style: {},
+    append() {},
     addEventListener(type, listener) {
       const callbacks = listeners.get(type) || [];
       callbacks.push(listener);
@@ -42,6 +43,7 @@ async function mountSidepanel() {
   let onStorageChanged;
 
   globalThis.document = {
+    createElement: fakeElement,
     activeElement: null,
     querySelector(selector) {
       if (!elements.has(selector)) elements.set(selector, fakeElement());
@@ -76,6 +78,12 @@ async function mountSidepanel() {
       onStorageChanged({ settings: { newValue: nextSettings } }, 'local');
     },
     async flush() { await new Promise((resolve) => setImmediate(resolve)); },
+    selectTarget(language) {
+      const select = elements.get('#target-language');
+      assert.ok(select, '侧栏提供目标语言选择器');
+      select.value = language;
+      select.dispatchEvent({ type: 'change' });
+    },
     restore() {
       globalThis.document = previous.document;
       globalThis.chrome = previous.chrome;
@@ -223,6 +231,48 @@ test('stopping a translation preserves source and focus, and allows retry despit
     assert.equal(app.element('#result-stopped').hidden, true);
     assert.equal(app.element('#stop-button').hidden, true);
     assert.equal(app.isFocused('#translate-button'), true);
+  } finally {
+    for (const request of app.requests) resolveTranslation(request, '');
+    await app.flush();
+    app.restore();
+  }
+});
+
+test('temporary target overrides restart active and completed translations and can follow the default again', async () => {
+  const app = await mountSidepanel();
+  try {
+    app.selectTarget('en');
+    await app.flush();
+    assert.equal(app.requests.length, 0);
+    beginTranslation(app);
+    await app.flush();
+    assert.match(JSON.parse(app.requests[0].options.body).messages[0].content, /into en\./);
+
+    app.selectTarget('ja');
+    await app.flush();
+    assert.equal(app.requests[0].options.signal.aborted, true);
+    assert.equal(app.requests.length, 2);
+    assert.match(JSON.parse(app.requests[1].options.body).messages[0].content, /into ja\./);
+
+    app.settingsChanged({ ...initialSettings, targetLanguage: 'fr' });
+    assert.equal(app.requests[1].options.signal.aborted, false);
+    assert.equal(app.element('#target-language').value, 'ja');
+    assert.match(app.element('#target-label').textContent, /法语/);
+
+    resolveTranslation(app.requests[0], '旧译文');
+    await app.flush();
+    assert.equal(app.element('#result-text').hidden, true);
+    resolveTranslation(app.requests[1], '日本語です');
+    await app.flush();
+    assert.equal(app.element('#result-text').textContent, '日本語です');
+
+    app.selectTarget('');
+    await app.flush();
+    assert.equal(app.requests.length, 3);
+    assert.match(JSON.parse(app.requests[2].options.body).messages[0].content, /into fr\./);
+    resolveTranslation(app.requests[2], 'Bonjour');
+    await app.flush();
+    assert.equal(app.element('#result-text').textContent, 'Bonjour');
   } finally {
     for (const request of app.requests) resolveTranslation(request, '');
     await app.flush();

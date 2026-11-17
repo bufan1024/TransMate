@@ -1,25 +1,33 @@
 import { selectionStorageKey, selectionWindowIdFromKey, shouldAcceptSelection } from './lib/selection.js';
 import { createPageActions, PAGE_TRANSLATION_MENU, PAGE_SUMMARY_MENU } from './lib/page-actions.js';
+import { DEFAULT_SETTINGS, TARGET_LANGUAGES } from './lib/config.js';
 import { translate } from './lib/translator.js';
 
 const MENU_ID = 'translate-selection';
 const INLINE_TIMEOUT_MS = 25_000;
 const INLINE_SCRIPT = 'content-script.js';
 const INLINE_SESSION_PREFIX = 'inlineSelection:';
+const INLINE_RETRY = 'TRANSMATE_INLINE_RETRY';
+const INLINE_SWITCH_LANGUAGE = 'TRANSMATE_INLINE_SWITCH_LANGUAGE';
 const SHORTCUT_HINT = '请先选中文字，再按快捷键翻译。';
 const languageNames = new Intl.DisplayNames('zh-CN', { type: 'language', fallback: 'none' });
 
-function displayTargetLanguage(value) {
-  if (typeof value !== 'string') return '';
-  const language = value.trim();
-  if (!language) return '';
-  if (language === 'zh-CN') return '简体中文';
-  if (language === 'zh-TW') return '繁体中文';
+function displayTargetLanguage(language) {
+  const supported = TARGET_LANGUAGES.find(({ id }) => id === language);
+  if (supported) return supported.name;
   try {
     return languageNames.of(language) || language;
   } catch {
     return language;
   }
+}
+
+function targetLanguageInfo(targetLanguageId) {
+  return { targetLanguageId, targetLanguage: displayTargetLanguage(targetLanguageId) };
+}
+
+function configuredTarget(settings) {
+  return typeof settings?.targetLanguage === 'string' ? settings.targetLanguage.trim() : '';
 }
 
 // chrome.scripting serializes this function and runs it inside each frame.
@@ -121,6 +129,7 @@ export function registerBackground(chromeApi, {
         tabId: entry.tabId, windowId: entry.windowId, text: entry.text,
         frameId: entry.frameId, documentId: entry.documentId,
         requestId: entry.requestId, order: entry.order, createdAt: Date.now(),
+        ...(entry.targetLanguageOverride ? { targetLanguageOverride: entry.targetLanguageOverride } : {}),
       },
     });
     if (!current(entry)) {
@@ -199,18 +208,31 @@ export function registerBackground(chromeApi, {
     }).catch(() => console.warn('无法清理过期选文'));
   }
 
-  async function show(entry, { retryOf, keyboard = false } = {}) {
+  async function readSettings(entry) {
+    const { settings } = await chromeApi.storage.local.get('settings');
+    if (entry.targetLanguageOverride && settings && typeof settings === 'object' && !Array.isArray(settings)) {
+      return { ...settings, targetLanguage: entry.targetLanguageOverride };
+    }
+    return settings;
+  }
+
+  async function show(entry, settings, { retryOf, keyboard = false } = {}) {
+    const languageData = entry.notice ? {} : {
+      languages: TARGET_LANGUAGES,
+      ...targetLanguageInfo(entry.targetLanguageOverride || configuredTarget(settings) || DEFAULT_SETTINGS.targetLanguage),
+    };
     const response = await send(entry, {
       type: 'TRANSMATE_INLINE_SHOW', requestId: entry.requestId, text: entry.text,
       order: entry.order, ...(entry.notice ? { notice: true } : {}),
       ...(retryOf ? { retryOf } : {}),
       ...(keyboard ? { keyboard: true } : {}),
+      ...languageData,
     });
     if (response?.ok !== true) throw new Error('无法显示翻译浮层');
     entry.shown = true;
   }
 
-  async function runTranslation(entry) {
+  async function runTranslation(entry, settings) {
     if (!current(entry)) return;
     if (entry.configInvalidated) {
       try {
@@ -238,23 +260,21 @@ export function registerBackground(chromeApi, {
 
     let result;
     try {
-      const completion = await Promise.race([
-        (async () => {
-          const { settings } = await chromeApi.storage.local.get('settings');
-          if (!current(entry) || controller.signal.aborted) return null;
-          const targetLanguage = displayTargetLanguage(settings?.targetLanguage);
-          const translation = await translateImpl({
-            text: entry.text,
-            settings,
-            permissionsApi: chromeApi.permissions,
-            signal: controller.signal,
-          });
-          return { translation, ...(targetLanguage ? { targetLanguage } : {}) };
-        })(),
+      const translation = await Promise.race([
+        translateImpl({
+          text: entry.text,
+          settings,
+          permissionsApi: chromeApi.permissions,
+          signal: controller.signal,
+        }),
         interrupted,
       ]);
-      if (!completion || completion.translation === null) return;
-      result = { type: 'TRANSMATE_INLINE_RESULT', requestId: entry.requestId, ...completion };
+      if (translation === null) return;
+      const target = configuredTarget(settings);
+      result = {
+        type: 'TRANSMATE_INLINE_RESULT', requestId: entry.requestId, translation,
+        ...(target ? targetLanguageInfo(target) : {}),
+      };
     } catch (error) {
       const message = timedOut
         ? `等待翻译超过 ${Math.ceil(timeoutMs / 1000)} 秒，请重试。`
@@ -317,7 +337,9 @@ export function registerBackground(chromeApi, {
         cancel(entry, { hide: true });
         return;
       }
-      await show(entry, { keyboard });
+      const settings = notice ? undefined : await readSettings(entry);
+      if (!current(entry) || !intentCurrent(tabId, order)) return;
+      await show(entry, settings, { keyboard });
       if (!current(entry) || !intentCurrent(tabId, order)) return;
       if (notice) {
         await send(entry, {
@@ -327,7 +349,7 @@ export function registerBackground(chromeApi, {
       }
       await persist(entry);
       if (!current(entry) || !intentCurrent(tabId, order)) return;
-      await runTranslation(entry);
+      await runTranslation(entry, settings);
     } catch {
       if (!current(entry)) return;
       cancel(entry, { hide: true });
@@ -415,7 +437,8 @@ export function registerBackground(chromeApi, {
     const key = inlineSessionKey(tabId, message.requestId);
     const stored = (await chromeApi.storage.session.get(key))[key];
     if (!stored || stored.tabId !== tabId || stored.requestId !== message.requestId
-        || typeof stored.text !== 'string' || !Number.isInteger(stored.frameId)) return null;
+        || typeof stored.text !== 'string' || !Number.isInteger(stored.frameId)
+        || (latestIntentByTab.get(tabId) || 0) > stored.order) return null;
     const entry = { ...stored, controller: null, shown: true, configInvalidated: false };
     if (!senderMatches(entry, sender)) return null;
     const newer = activeByTab.get(tabId);
@@ -424,13 +447,41 @@ export function registerBackground(chromeApi, {
     return entry;
   }
 
+  async function restart(entry, targetLanguageOverride) {
+    entry.controller?.abort();
+    const replacement = {
+      ...entry, targetLanguageOverride, requestId: crypto.randomUUID(), parentRequestId: entry.requestId,
+      controller: null, configInvalidated: false, shown: false, order: nextInlineOrder(),
+    };
+    activeByTab.set(entry.tabId, replacement);
+    try {
+      const settings = await readSettings(replacement);
+      if (!current(replacement)) return { ok: false };
+      await show(replacement, settings, { retryOf: entry.requestId });
+      if (current(replacement)) await persist(replacement);
+      if (!current(replacement)) {
+        send(replacement, { type: 'TRANSMATE_INLINE_HIDE', requestId: replacement.requestId }).catch(() => {});
+        return { ok: false };
+      }
+      void runTranslation(replacement, settings);
+      return { ok: true };
+    } catch {
+      if (current(replacement)) cancel(replacement, { hide: true });
+      return { ok: false };
+    }
+  }
+
   async function onMessage(message, sender) {
     if (!message || typeof message !== 'object') return;
     if (message.type === 'TRANSMATE_PAGE_CANCEL' || message.type === 'TRANSMATE_PAGE_MORE') {
       return pageActions.handleMessage(message, sender);
     }
-    const entry = await recoverEntry(message, sender);
-    if (!entry || !senderMatches(entry, sender)) return;
+    const switching = message.type === INLINE_SWITCH_LANGUAGE;
+    const restarting = switching || message.type === INLINE_RETRY;
+    if (switching && !TARGET_LANGUAGES.some(({ id }) => id === message.targetLanguage)) return { ok: false };
+    const recovered = await recoverEntry(message, sender);
+    const entry = recovered && activeByTab.get(recovered.tabId);
+    if (!entry || !senderMatches(entry, sender)) return restarting ? { ok: false } : undefined;
 
     if (message.type === 'TRANSMATE_INLINE_OPEN_OPTIONS') {
       if (message.requestId !== entry.requestId) return;
@@ -443,32 +494,9 @@ export function registerBackground(chromeApi, {
       }
       return;
     }
-    if (message.requestId !== entry.requestId) return;
-    if (message.type === 'TRANSMATE_INLINE_RETRY') {
-      if (entry.notice) return;
-      entry.controller?.abort();
-      const retry = {
-        ...entry, requestId: crypto.randomUUID(), parentRequestId: entry.requestId,
-        controller: null, configInvalidated: false, shown: false, order: nextInlineOrder(),
-      };
-      activeByTab.set(entry.tabId, retry);
-      try {
-        await show(retry, { retryOf: entry.requestId });
-        if (!current(retry)) {
-          send(retry, { type: 'TRANSMATE_INLINE_HIDE', requestId: retry.requestId }).catch(() => {});
-          return;
-        }
-        await persist(retry);
-        if (!current(retry)) {
-          send(retry, { type: 'TRANSMATE_INLINE_HIDE', requestId: retry.requestId }).catch(() => {});
-          return;
-        }
-        await chromeApi.storage.session.remove(inlineSessionKey(entry.tabId, entry.requestId));
-        if (current(retry)) await runTranslation(retry);
-      } catch {
-        if (current(retry)) cancel(retry, { hide: true });
-      }
-    }
+    if (!restarting) return;
+    if (entry.notice || message.requestId !== entry.requestId) return { ok: false };
+    return restart(entry, switching ? message.targetLanguage : entry.targetLanguageOverride);
   }
 
   chromeApi.contextMenus.onClicked.addListener((info, tab) => {
@@ -478,6 +506,10 @@ export function registerBackground(chromeApi, {
     void onCommand(command, tab).catch(() => console.warn('无法处理快捷键翻译'));
   });
   chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.type === INLINE_SWITCH_LANGUAGE || message?.type === INLINE_RETRY) {
+      void onMessage(message, sender).then(sendResponse, () => sendResponse?.({ ok: false }));
+      return true;
+    }
     if (message?.type === 'TRANSMATE_PAGE_MORE') {
       void onMessage(message, sender).then(() => sendResponse?.(), () => sendResponse?.());
       return true;
