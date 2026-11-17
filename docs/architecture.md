@@ -37,7 +37,7 @@
 
 侧栏监听存储事件，同时读取启动快照。如果窗口 ID 还未返回，先缓存收到的事件，之后合并并选择最新有效选文。配置有效时，先删除该选文自己的存储键，再开始翻译，避免重开侧栏重复请求或旧操作误删新选文。
 
-手动编辑原文、收到新选文或翻译字段变更会中止旧请求。侧栏递增 `requestNumber`，回调只更新对应的当前请求。涉及配置字段时查看 `TRANSLATION_SETTING_KEYS`，当前包含 `provider`、`endpoint`、`apiKey`、`authType`、`model`、`targetLanguage`、`prompt`。译文仅保留在当前界面状态中。
+手动编辑原文、收到新选文或翻译字段变更会中止旧请求。侧栏递增 `requestNumber`，回调只更新对应的当前请求。涉及配置字段时查看 `TRANSLATION_SETTING_KEYS`，其中还包括自定义服务的 `authType` 和 Claude 的 `workspaceId`。译文仅保留在当前界面状态中。
 
 仅有旧版 `settings` 时，将其作为默认配置读取。首次保存、切换或清理时在 `transmate-settings` 锁内重新读取配置和检查关联域名权限。修改或删除只撤销其他有效配置均未使用的旧域名；手动撤销和重置仍按授权列表执行。
 
@@ -52,7 +52,7 @@
 - `lib/config.js` 定义默认值和 OpenAI、DeepSeek、OpenRouter、自定义服务选项。服务地址须为以 `/chat/completions` 结尾的完整 HTTPS URL，仅 `localhost` 和 `127.0.0.1` 支持 HTTP。URL 禁止认证信息、查询参数和片段。权限模式由 `originPatternForEndpoint` 生成，形如 `scheme://hostname/*`，省略端口。密钥复用则要求服务 ID 和规范化后的完整接口地址都相同。
 - `options.js` 处理表单。在用户点击保存或测试时，先同步调用 `chrome.permissions.request`，再等待授权结果。页面加载已有配置时将密钥字段留空。
 - `lib/settings-management.js` 处理持久化与权限清理。保存配置在 `transmate-settings` 锁内读取现有设置、按当前状态解析草稿、重新确认授权、写入设置，最后尝试撤销不再使用的旧域名。清除密钥时保留其余字段，重置时删除设置并尝试撤销全部已授予的域名。`cleanupFailed` 表示写入或删除已生效，权限清理仍有失败项。
-- `lib/translator.js` 校验配置和域名访问权限，再向已配置的接口发送 `POST` 请求。省略 `authType` 的旧配置使用 Bearer。自定义服务可使用 `x-api-key`、`api-key` 或本机无需密钥模式。选文、手动翻译、连接检测和总结使用非流式响应。网页双语通过 `lib/completion-stream.js` 读取 Chat Completions 流，按完整的一行 JSON 校验段落，也兼容普通 JSON 响应。模块返回带 HTTP 状态的错误提示时，不保留上游响应正文。手动翻译和连接检测各有 45 秒超时。
+- `lib/translator.js` 校验配置和域名访问权限，再向已配置的接口发送 `POST` 请求。`lib/providers/` 中的适配器构造请求头和正文，将各自的 JSON 或流式响应转成译文。Chat Completions 旧配置默认使用 Bearer，自定义设置可选择其他认证方式。Claude 适配器使用 Messages API `2026-10-21`，读取文本块和停止原因。选文、手动翻译、连接检测和总结使用非流式响应。网页双语按完整的一行 JSON 校验流式段落，也兼容普通 JSON 响应。模块返回带 HTTP 状态的错误提示时，不保留上游响应正文。手动翻译和连接检测各有 45 秒超时。
 - `lib/connection-check.js` 发送 `Hello, world.`，返回 `{ translation, durationMs }`。测试连接可取消，且不会写入设置。授权弹窗的结果独立于请求取消，可能留下可在设置页手动撤销的授权。
 
 ## 调整页面时检查的接口

@@ -5,7 +5,7 @@ import { SERVICE_PROFILES_KEY, activateServiceProfile, normalizeServiceProfiles,
 import { translate } from "./lib/translator.js";
 
 const MAX_TEXT_LENGTH = 5000;
-const TRANSLATION_SETTING_KEYS = ["provider", "endpoint", "apiKey", "authType", "model", "targetLanguage", "prompt"];
+const TRANSLATION_SETTING_KEYS = ["provider", "endpoint", "apiKey", "authType", "workspaceId", "model", "targetLanguage", "prompt"];
 const targetNames = {
   "zh-CN": "简体中文",
   "zh-TW": "繁体中文",

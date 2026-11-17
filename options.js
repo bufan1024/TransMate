@@ -17,6 +17,8 @@ const endpointInput = document.querySelector("#endpoint");
 const endpointHelp = document.querySelector("#endpoint-help");
 const customAuthentication = document.querySelector("#custom-authentication");
 const authTypeInput = document.querySelector("#auth-type");
+const claudeWorkspace = document.querySelector("#claude-workspace");
+const workspaceIdInput = document.querySelector("#workspace-id");
 const apiKeyField = document.querySelector("#api-key-field");
 const apiKeyInput = document.querySelector("#api-key");
 const modelInput = document.querySelector("#model");
@@ -77,6 +79,7 @@ function formSettings() {
     provider,
     endpoint: endpointInput.value.trim(),
     authType,
+    ...(provider === "anthropic" ? { workspaceId: workspaceIdInput.value.trim() } : {}),
     apiKey: authType === "none" ? "" : apiKeyInput.value.trim(),
     model: modelInput.value.trim(),
     targetLanguage: targetInput.value,
@@ -87,10 +90,13 @@ function formSettings() {
 function renderKeyStatus() {
   const draft = formSettings();
   customAuthentication.hidden = draft.provider !== "custom";
+  const claude = draft.provider === "anthropic";
+  claudeWorkspace.hidden = !claude;
   apiKeyField.hidden = draft.authType === "none";
-  endpointHelp.textContent = customAuthentication.hidden
-    ? "填写完整的 Chat Completions 接口地址。仅本机服务可使用 HTTP。"
-    : "填写服务的完整 Chat Completions 请求地址。自定义接口可使用不同路径。";
+  endpointInput.placeholder = claude ? "https://api.anthropic.com/v1/messages" : "https://example.com/v1/chat/completions";
+  if (claude) endpointHelp.textContent = "填写以 /v1/messages 结尾的 Claude Messages 接口地址。";
+  else if (draft.provider === "custom") endpointHelp.textContent = "填写服务的完整 Chat Completions 请求地址。自定义接口可使用不同路径。";
+  else endpointHelp.textContent = "填写完整的 Chat Completions 接口地址。仅本机服务可使用 HTTP。";
   if (draft.apiKey) keyStatus.textContent = "将使用新填写的密钥；保存后才写入本机。";
   else if (canReuseSavedKey(draft, savedSettings)) keyStatus.textContent = "此服务已有保存的密钥；留空即可沿用。";
   else if (savedSettings?.apiKey) keyStatus.textContent = "服务、接口或认证方式已更改，请填写新的 API Key。";
@@ -102,6 +108,7 @@ function fillForm(settings) {
   setProvider(settings.provider);
   endpointInput.value = settings.endpoint || "";
   authTypeInput.value = settings.provider === "custom" ? settings.authType ?? DEFAULT_AUTH_TYPE : DEFAULT_AUTH_TYPE;
+  workspaceIdInput.value = settings.provider === "anthropic" ? settings.workspaceId ?? "" : "";
   apiKeyInput.value = "";
   modelInput.value = settings.model || "";
   targetInput.value = settings.targetLanguage || DEFAULT_SETTINGS.targetLanguage;
@@ -235,6 +242,7 @@ function showStatus(message, tone, { connectionResult = false, offerSave = false
 
 function matchesConfig(config, candidate) {
   return Boolean(candidate && (config.authType ?? DEFAULT_AUTH_TYPE) === (candidate.authType ?? DEFAULT_AUTH_TYPE)
+    && (config.workspaceId ?? "") === (candidate.workspaceId ?? "")
     && Object.entries(config).every(([key, value]) => key === "authType" || candidate[key] === value));
 }
 
@@ -269,6 +277,7 @@ function validationError(error) {
   const message = error?.message || String(error);
   if (/配置名称/.test(message)) profileName.focus();
   else if (/认证方式/.test(message) && !customAuthentication.hidden) authTypeInput.focus();
+  else if (/工作区 ID/.test(message) && !claudeWorkspace.hidden) workspaceIdInput.focus();
   else if (/invalid url|endpoint|https|接口/i.test(message)) endpointInput.focus();
   else if (/api.?key/i.test(message)) apiKeyInput.focus();
   else if (/model|模型/i.test(message)) modelInput.focus();
@@ -349,10 +358,14 @@ deleteProfileButton.addEventListener("click", async () => {
 
 providerList.addEventListener("change", (event) => {
   if (event.target.name !== "provider") return;
-  const oldPreset = providerById(previousProvider)?.endpoint || "";
-  const nextPreset = providerById(event.target.value)?.endpoint || "";
-  if (!endpointInput.value.trim() || endpointInput.value.trim() === oldPreset) endpointInput.value = nextPreset;
+  const oldPreset = providerById(previousProvider);
+  const nextPreset = providerById(event.target.value);
+  const endpoint = endpointInput.value.trim();
+  if (!endpoint || endpoint === oldPreset?.endpoint || oldPreset?.protocol !== nextPreset?.protocol) {
+    endpointInput.value = nextPreset?.endpoint || "";
+  }
   authTypeInput.value = DEFAULT_AUTH_TYPE;
+  workspaceIdInput.value = "";
   apiKeyInput.value = "";
   previousProvider = event.target.value;
   renderKeyStatus();
