@@ -427,6 +427,28 @@ try {
   await panel.locator('#result-text').waitFor({ state: 'visible' });
   assert.equal(await panel.locator('#result-text').textContent(), '侧栏译文');
 
+  const originalPanelSize = panel.viewportSize();
+  const beforeComparison = requests.length;
+  await panel.setViewportSize({ width: 340, height: 780 });
+  const compare = panel.getByRole('button', { name: '对照阅读' });
+  await compare.click({ timeout: 1500 });
+  const editing = panel.getByRole('button', { name: '返回编辑' });
+  assert.equal(await editing.getAttribute('aria-pressed'), 'true');
+  assert.equal(await panel.locator('#comparison-source').textContent(), 'panel success');
+  assert.equal(await panel.locator('#source-text').isVisible(), false);
+  assert.equal(await panel.locator('#copy-button').isEnabled(), true);
+  assert.equal(await panel.locator('#result-text').textContent(), '侧栏译文');
+  const columns = await panel.locator('#translation-layout').evaluate((element) => getComputedStyle(element).gridTemplateColumns);
+  assert.equal(columns.split(' ').length, 1, '窄侧栏使用上下对照');
+  await panel.setViewportSize({ width: 620, height: 780 });
+  const wideColumns = await panel.locator('#translation-layout').evaluate((element) => getComputedStyle(element).gridTemplateColumns);
+  assert.equal(wideColumns.split(' ').length, 2, '宽侧栏使用双列对照');
+  await editing.click();
+  assert.equal(await panel.locator('#source-text').inputValue(), 'panel success');
+  assert.equal(await panel.locator('#source-text').isVisible(), true);
+  await panel.setViewportSize(originalPanelSize);
+  assert.equal(requests.length, beforeComparison, '切换对照布局不发送翻译请求');
+
   await panel.locator('#source-text').fill('slow cancel');
   await panel.locator('#translate-button').click();
   await waitUntil(

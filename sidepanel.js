@@ -7,6 +7,10 @@ const MAX_TEXT_LENGTH = 5000;
 const TRANSLATION_SETTING_KEYS = ["provider", "endpoint", "apiKey", "model", "targetLanguage", "prompt"];
 const elements = {
   input: document.querySelector("#source-text"),
+  editor: document.querySelector("#source-editor"),
+  layout: document.querySelector("#translation-layout"),
+  comparison: document.querySelector("#compare-translation"),
+  comparisonSource: document.querySelector("#comparison-source"),
   count: document.querySelector("#source-count"),
   target: document.querySelector("#target-language"),
   defaultTarget: document.querySelector("#target-label"),
@@ -38,6 +42,7 @@ let newestSelection = null;
 let activeRequest = null;
 let currentText = "";
 let translation = "";
+let comparing = false;
 let requestNumber = 0;
 let currentWindowId = null;
 let settingsChangeVersion = 0;
@@ -61,6 +66,17 @@ function normalizedSettings(targetLanguage = settings.targetLanguage) {
   }
 }
 
+function setComparisonMode(enabled) {
+  if (comparing === enabled) return;
+  comparing = enabled;
+  elements.layout.classList.toggle("comparison-active", enabled);
+  elements.editor.hidden = enabled;
+  elements.comparisonSource.hidden = !enabled;
+  elements.comparisonSource.textContent = enabled ? elements.input.value : "";
+  elements.comparison.setAttribute("aria-pressed", String(enabled));
+  elements.comparison.textContent = enabled ? "返回编辑" : "对照阅读";
+}
+
 function updateControls() {
   const length = elements.input.value.length;
   const ready = Boolean(normalizedSettings(effectiveTarget()));
@@ -75,6 +91,11 @@ function updateControls() {
   elements.stop.hidden = !busy;
   elements.retry.disabled = busy || consumingSelection || !currentText || !ready;
   elements.copy.disabled = !translation;
+  if (!translation && comparing) {
+    setComparisonMode(false);
+    if (document.activeElement === elements.comparison) elements.input.focus();
+  }
+  elements.comparison.hidden = !translation;
   const defaultTarget = typeof settings.targetLanguage === "string" ? settings.targetLanguage.trim() : "";
   const defaultName = TARGET_LANGUAGES.find(({ id }) => id === defaultTarget)?.name || defaultTarget;
   elements.defaultTarget.textContent = defaultName ? `${defaultName}（默认）` : "设置中的默认语言";
@@ -247,6 +268,10 @@ function consumePendingSelection() {
     if (consumingSelectionId === selected.id) consumingSelectionId = null;
   });
 }
+
+elements.comparison.addEventListener("click", () => {
+  if (translation) setComparisonMode(!comparing);
+});
 
 elements.input.addEventListener("input", () => {
   if (pendingSelection) discardSelection(pendingSelection.storageKey);
