@@ -1,8 +1,17 @@
 import { DEFAULT_SETTINGS, PROVIDERS, originPatternForEndpoint } from "./lib/config.js";
 import { checkConnection } from "./lib/connection-check.js";
-import { SettingsOperationError, canReuseSavedKey, persistSettings, resolveSettings, revokeGrantedOrigin, saveSettingsWithPermission, withSettingsLock } from "./lib/settings-management.js";
+import {
+  DEFAULT_PROFILE_NAME, SERVICE_PROFILES_KEY, SettingsOperationError, activateServiceProfile,
+  canReuseSavedKey, clearServiceProfileKey, deleteServiceProfile, profileOrigin,
+  readServiceProfiles, resetServiceProfiles, resolveSettings, revokeGrantedOrigin, saveSettingsWithPermission, withSettingsLock,
+} from "./lib/settings-management.js";
 
 const form = document.querySelector("#settings-form");
+const profileSelect = document.querySelector("#service-profile");
+const profileName = document.querySelector("#profile-name");
+const newProfileButton = document.querySelector("#new-profile");
+const activateProfileButton = document.querySelector("#activate-profile");
+const deleteProfileButton = document.querySelector("#delete-profile");
 const providerList = document.querySelector("#provider-list");
 const endpointInput = document.querySelector("#endpoint");
 const apiKeyInput = document.querySelector("#api-key");
@@ -21,6 +30,9 @@ const permissionList = document.querySelector("#permission-list");
 let previousProvider = DEFAULT_SETTINGS.provider;
 let activeConnectionCheck = null;
 let savedSettings = null;
+let serviceProfiles = { activeId: null, profiles: [] };
+let editedProfileId = null;
+let profileRevision = 0;
 let operationBusy = false;
 let permissionRefresh = 0;
 
@@ -83,9 +95,57 @@ function fillForm(settings) {
   renderKeyStatus();
 }
 
-async function readSavedSettings() {
-  const stored = await chrome.storage.local.get("settings");
-  return stored.settings || null;
+function settingsEnvironment() {
+  return {
+    storageArea: chrome.storage.local, permissionsApi: chrome.permissions, lockManager: globalThis.navigator?.locks,
+  };
+}
+
+function editedProfile() {
+  return serviceProfiles.profiles.find(({ id }) => id === editedProfileId);
+}
+
+function renderProfileControls() {
+  const profile = editedProfile();
+  newProfileButton.disabled = operationBusy && !activeConnectionCheck;
+  deleteProfileButton.disabled = operationBusy || !profile;
+  activateProfileButton.disabled = operationBusy || !profile || profile.id === serviceProfiles.activeId || !profileOrigin(profile);
+}
+
+function renderProfiles() {
+  const options = serviceProfiles.profiles.map(({ id, name }) =>
+    new Option(id === serviceProfiles.activeId ? `${name}（当前）` : name, id));
+  profileSelect.replaceChildren(new Option("新配置", ""), ...options);
+  profileSelect.value = editedProfileId ?? "";
+  renderProfileControls();
+}
+
+function editProfile(id) {
+  editedProfileId = id;
+  const profile = editedProfile();
+  savedSettings = profile?.settings ?? null;
+  profileName.value = profile?.name ?? (serviceProfiles.profiles.length ? "" : DEFAULT_PROFILE_NAME);
+  fillForm({ ...DEFAULT_SETTINGS, ...savedSettings });
+  renderProfiles();
+}
+
+function applyProfiles(state, selectedId) {
+  profileRevision += 1;
+  serviceProfiles = state;
+  if (selectedId !== undefined) {
+    editProfile(selectedId);
+  } else if (editedProfileId !== null && !editedProfile()) {
+    editProfile(state.activeId);
+  } else {
+    savedSettings = editedProfile()?.settings ?? null;
+    renderProfiles();
+    renderKeyStatus();
+  }
+}
+
+async function readSavedProfile(id) {
+  const state = await readServiceProfiles(chrome.storage.local);
+  return state.profiles.find((profile) => profile.id === id);
 }
 
 function renderPermissions(origins) {
@@ -178,6 +238,7 @@ function setBusy(busy, mode = "save") {
   testButton.querySelector(".test-label").textContent = busy && mode === "test" ? "取消检测" : busy ? "请稍候…" : "测试连接";
   testButton.dataset.testing = String(busy && mode === "test");
   renderKeyStatus();
+  renderProfileControls();
 }
 
 function cancelConnectionCheck(message = "连接检测已取消。") {
@@ -191,7 +252,8 @@ function cancelConnectionCheck(message = "连接检测已取消。") {
 
 function validationError(error) {
   const message = error?.message || String(error);
-  if (/invalid url|endpoint|https|接口/i.test(message)) endpointInput.focus();
+  if (/配置名称/.test(message)) profileName.focus();
+  else if (/invalid url|endpoint|https|接口/i.test(message)) endpointInput.focus();
   else if (/api.?key/i.test(message)) apiKeyInput.focus();
   else if (/model|模型/i.test(message)) modelInput.focus();
   return message;
@@ -214,6 +276,61 @@ function providerById(id) {
   return PROVIDERS.find((provider) => provider.id === id);
 }
 
+profileSelect.addEventListener("change", () => {
+  if (operationBusy && !activeConnectionCheck) return;
+  cancelConnectionCheck();
+  editProfile(profileSelect.value || null);
+  status.hidden = true;
+});
+
+newProfileButton.addEventListener("click", () => {
+  if (operationBusy && !activeConnectionCheck) return;
+  cancelConnectionCheck();
+  editProfile(null);
+  status.hidden = true;
+  profileName.focus();
+});
+
+activateProfileButton.addEventListener("click", async () => {
+  const profile = editedProfile();
+  const origin = profileOrigin(profile);
+  if (operationBusy || !origin || profile.id === serviceProfiles.activeId) return;
+  setBusy(true, "manage");
+  showStatus("正在切换当前 AI 配置…", "working");
+  try {
+    if (!await chrome.permissions.request({ origins: [origin] })) {
+      showStatus("未获得该服务的访问权限。配置未切换。", "error");
+      return;
+    }
+    const { state } = await activateServiceProfile({
+      profileId: profile.id, expectedOrigin: origin, ...settingsEnvironment(),
+    });
+    applyProfiles(state);
+    showStatus("已切换当前 AI 配置。", "success");
+  } catch (error) {
+    showSettingsFailure(error, "切换配置失败，请检查浏览器存储和权限后重试。");
+  } finally {
+    await refreshPermissions();
+    setBusy(false);
+  }
+});
+
+deleteProfileButton.addEventListener("click", async () => {
+  const profile = editedProfile();
+  if (operationBusy || !profile || !window.confirm(`确定删除配置「${profile.name}」和它的密钥吗？`)) return;
+  setBusy(true, "manage");
+  try {
+    const { state, cleanupFailed } = await deleteServiceProfile({ profileId: profile.id, ...settingsEnvironment() });
+    applyProfiles(state, state.activeId);
+    showStatus(cleanupFailed ? "配置已删除，但部分域名权限未能撤销。" : "配置已删除。", cleanupFailed ? "error" : "success");
+  } catch (error) {
+    showSettingsFailure(error, "删除配置失败，请检查浏览器存储后重试。");
+  } finally {
+    await refreshPermissions();
+    setBusy(false);
+  }
+});
+
 providerList.addEventListener("change", (event) => {
   if (event.target.name !== "provider") return;
   const oldPreset = providerById(previousProvider)?.endpoint || "";
@@ -230,7 +347,8 @@ endpointInput.addEventListener("input", () => {
   renderKeyStatus();
 });
 
-function onFormChanged() {
+function onFormChanged(event) {
+  if (event.target === profileSelect) return;
   renderKeyStatus();
   if (activeConnectionCheck) cancelConnectionCheck("配置已修改，连接检测已取消。请重新检测。");
   else status.hidden = true;
@@ -246,9 +364,12 @@ form.addEventListener("submit", async (event) => {
     return;
   }
   const draft = formSettings();
+  const name = profileName.value.trim();
+  const profileId = editedProfileId;
   let config;
   let permissionPromise;
   try {
+    if (!name || name.length > 48) throw new Error("请输入 1 到 48 个字符的配置名称。");
     config = resolveSettings(draft, savedSettings);
     permissionPromise = requestEndpointPermission(config.endpoint);
   } catch (error) {
@@ -264,17 +385,12 @@ form.addEventListener("submit", async (event) => {
       return;
     }
     const result = await saveSettingsWithPermission({
-      draft,
-      storageArea: chrome.storage.local,
-      permissionsApi: chrome.permissions,
-      lockManager: globalThis.navigator?.locks,
+      draft, name, profileId, ...settingsEnvironment(),
     });
-    savedSettings = result.settings;
-    apiKeyInput.value = "";
-    renderKeyStatus();
+    applyProfiles(result.state, result.profile.id);
     showStatus(result.cleanupFailed
       ? "配置已保存，但旧域名权限未能撤销。请在下方授权列表中手动处理。"
-      : "配置已保存。现在可以在网页中选中文字开始翻译。", result.cleanupFailed ? "error" : "success");
+      : "配置已保存。", result.cleanupFailed ? "error" : "success");
   } catch (error) {
     showSettingsFailure(error, "保存失败，请检查浏览器存储和权限后重试。新申请的域名权限可能仍保留在下方列表中。");
   } finally {
@@ -290,6 +406,8 @@ testButton.addEventListener("click", async () => {
   }
   if (operationBusy) return;
   const draft = formSettings();
+  const profileId = editedProfileId;
+  const name = profileName.value.trim();
   let config;
   let permissionPromise;
   try {
@@ -311,24 +429,28 @@ testButton.addEventListener("click", async () => {
       return;
     }
     if (activeConnectionCheck !== check) return;
-    const current = await readSavedSettings();
+    const current = await readSavedProfile(profileId);
     if (activeConnectionCheck !== check) return;
-    config = resolveSettings(draft, current);
+    if (profileId && !current) {
+      showStatus("这套配置已被删除，请重新选择或新建配置。", "working");
+      return;
+    }
+    config = resolveSettings(draft, current?.settings);
     const { translation, durationMs } = await checkConnection({ settings: config, signal: check.controller.signal });
     if (activeConnectionCheck !== check) return;
-    const latestSaved = await readSavedSettings();
+    const latestSaved = await readSavedProfile(profileId);
     if (activeConnectionCheck !== check) return;
     let latestDraft;
     try {
-      latestDraft = resolveSettings(draft, latestSaved);
+      latestDraft = resolveSettings(draft, latestSaved?.settings);
     } catch {
       // The draft may have depended on a saved key that changed during the check.
     }
-    if (!matchesConfig(config, latestDraft)) {
+    if ((profileId && !latestSaved) || !matchesConfig(config, latestDraft)) {
       showStatus("已收到示例译文，但本机配置在检测期间发生变化，请重新检测。", "working");
       return;
     }
-    const alreadySaved = matchesConfig(config, latestSaved);
+    const alreadySaved = latestSaved?.name === name && matchesConfig(config, latestSaved.settings);
     const sample = translation.length > 120 ? `${translation.slice(0, 120)}…` : translation;
     const resultMessage = `连接正常，已收到有效译文（${(durationMs / 1000).toFixed(1)} 秒）。示例译文：「${sample}」。`;
     showStatus(resultMessage + (alreadySaved ? "当前配置已保存。" : "当前草稿尚未保存。"), "success", {
@@ -348,18 +470,12 @@ testButton.addEventListener("click", async () => {
 });
 
 clearKeyButton.addEventListener("click", async () => {
-  if (operationBusy) return;
+  if (operationBusy || !editedProfileId) return;
   cancelConnectionCheck();
   setBusy(true, "manage");
   try {
-    const outcome = await withSettingsLock(globalThis.navigator?.locks, async () => {
-      const previous = await readSavedSettings();
-      if (!previous?.apiKey) return { noKey: true, settings: previous };
-      const next = { ...previous, apiKey: "" };
-      const result = await persistSettings({ nextSettings: next, previousSettings: previous, storageArea: chrome.storage.local, permissionsApi: chrome.permissions });
-      return { noKey: false, settings: next, ...result };
-    });
-    savedSettings = outcome.settings;
+    const outcome = await clearServiceProfileKey({ profileId: editedProfileId, ...settingsEnvironment() });
+    applyProfiles(outcome.state);
     if (outcome.noKey) {
       apiKeyInput.value = "";
       showStatus("当前没有已保存的 API Key。", "working");
@@ -382,12 +498,8 @@ resetButton.addEventListener("click", async () => {
   cancelConnectionCheck();
   setBusy(true, "manage");
   try {
-    const result = await withSettingsLock(globalThis.navigator?.locks, async () => {
-      const previous = await readSavedSettings();
-      return persistSettings({ nextSettings: null, previousSettings: previous, storageArea: chrome.storage.local, permissionsApi: chrome.permissions });
-    });
-    savedSettings = null;
-    fillForm(DEFAULT_SETTINGS);
+    const result = await resetServiceProfiles(settingsEnvironment());
+    applyProfiles({ activeId: null, profiles: [] }, null);
     showStatus(result.cleanupFailed
       ? "配置已重置，但部分域名权限未能撤销。请在下方列表中手动处理。"
       : "本机配置和密钥已重置，已撤销授权域名。", result.cleanupFailed ? "error" : "success");
@@ -399,27 +511,41 @@ resetButton.addEventListener("click", async () => {
   }
 });
 
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes.settings) {
-    savedSettings = changes.settings.newValue || null;
-    renderKeyStatus();
-    if (!status.hidden && status.dataset.connectionResult === "true") {
+chrome.storage.onChanged.addListener(async (changes, area) => {
+  if (area !== "local" || (!changes.settings && !changes[SERVICE_PROFILES_KEY])) return;
+  const revision = ++profileRevision;
+  try {
+    const state = await readServiceProfiles(chrome.storage.local);
+    if (revision !== profileRevision) return;
+    const old = editedProfile();
+    const next = state.profiles.find(({ id }) => id === editedProfileId);
+    const editedChanged = Boolean(old && (old.name !== next?.name || !matchesConfig(old.settings, next?.settings)));
+    applyProfiles(state);
+    if (editedChanged && activeConnectionCheck) {
+      cancelConnectionCheck("本机配置已更新，请重新检测当前表单。");
+    } else if (editedChanged && !status.hidden && status.dataset.connectionResult === "true") {
       showStatus("本机配置已更新，请重新检测当前表单。", "working");
     }
+  } catch {
+    if (revision === profileRevision) showStatus("无法读取本机设置，请重新打开设置页。", "error");
   }
 });
 
 async function initialize() {
   renderProviders();
-  fillForm(DEFAULT_SETTINGS);
+  editProfile(null);
+  setBusy(true, "manage");
   try {
     await chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
-    savedSettings = await readSavedSettings();
-    fillForm({ ...DEFAULT_SETTINGS, ...(savedSettings || {}) });
+    const revision = profileRevision;
+    const state = await readServiceProfiles(chrome.storage.local);
+    if (revision === profileRevision) applyProfiles(state, state.activeId);
   } catch {
     showStatus("无法读取本机设置，请重新打开设置页。", "error");
+  } finally {
+    await refreshPermissions();
+    setBusy(false);
   }
-  await refreshPermissions();
 }
 
 initialize();
