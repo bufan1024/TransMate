@@ -5,6 +5,7 @@ import { recordTranslation } from './lib/translation-history.js';
 import { MAX_LONG_TEXT_LENGTH } from './lib/long-translation.js';
 import { MAX_TEXT_LENGTH, translate } from './lib/translator.js';
 import { GLOSSARY_STORAGE_KEY, glossaryAffectsTranslations } from './lib/glossary.js';
+import { createVideoActions, VIDEO_CUE, VIDEO_MENU, VIDEO_STOP } from './lib/video-actions.js';
 
 const MENU_ID = 'translate-selection';
 const INLINE_TIMEOUT_MS = 25_000;
@@ -99,11 +100,16 @@ export function registerBackground(chromeApi, {
     privateStorageReady, nextOrder: nextInlineOrder, isInjectableUrl, translatePageImpl,
   });
 
+  const videoActions = createVideoActions(chromeApi, { privateStorageReady, isInjectableUrl });
+
   chromeApi.runtime.onInstalled.addListener(() => {
     chromeApi.contextMenus.create({
       id: MENU_ID,
       title: '用 TransMate 翻译',
       contexts: ['selection'],
+    });
+    chromeApi.contextMenus.create({
+      id: VIDEO_MENU, title: '翻译视频字幕', contexts: ['page', 'video'], documentUrlPatterns: ['http://*/*', 'https://*/*'],
     });
     for (const [id, title] of [[PAGE_TRANSLATION_MENU, '整页双语翻译'], [PAGE_SUMMARY_MENU, '总结网页重点']]) {
       chromeApi.contextMenus.create({
@@ -391,6 +397,7 @@ export function registerBackground(chromeApi, {
   }
 
   async function onClicked(info, tab) {
+    if (info.menuItemId === VIDEO_MENU) return videoActions.start(tab, info);
     if (info.menuItemId === PAGE_TRANSLATION_MENU) return pageActions.startTranslation(tab);
     if (info.menuItemId === PAGE_SUMMARY_MENU) return pageActions.openSummary(tab);
     if (info.menuItemId !== MENU_ID || !info.selectionText?.trim()) return;
@@ -556,6 +563,7 @@ export function registerBackground(chromeApi, {
 
   async function onMessage(message, sender) {
     if (!message || typeof message !== 'object') return;
+    if (message.type === VIDEO_CUE || message.type === VIDEO_STOP) return videoActions.handle(message, sender);
     if (message.type === INLINE_OPEN_PANEL) return openInlinePanel(message, sender);
     if (message.type === PANEL_PAGE_ACTION) return handlePanelPageAction(message, sender);
     if (message.type === 'TRANSMATE_PAGE_CANCEL' || message.type === 'TRANSMATE_PAGE_MORE'
@@ -597,6 +605,10 @@ export function registerBackground(chromeApi, {
       void onMessage(message, sender).then(sendResponse, () => sendResponse?.({ ok: false }));
       return true;
     }
+    if (message?.type === VIDEO_CUE) {
+      void onMessage(message, sender).then(sendResponse, () => sendResponse?.());
+      return true;
+    }
     if (message?.type === PANEL_PAGE_ACTION) {
       void onMessage(message, sender).then(sendResponse, () => sendResponse({ ok: false }));
       return true;
@@ -608,6 +620,7 @@ export function registerBackground(chromeApi, {
     void onMessage(message, sender).catch(() => console.warn('无法处理翻译浮层操作'));
   });
   chromeApi.tabs.onRemoved?.addListener((tabId) => {
+    videoActions.leave(tabId, { hide: false });
     pageActions.leavePage(tabId, { clear: false });
     latestIntentByTab.delete(tabId);
     const entry = activeByTab.get(tabId);
@@ -616,6 +629,7 @@ export function registerBackground(chromeApi, {
   });
   chromeApi.tabs.onUpdated?.addListener((tabId, changeInfo) => {
     if (!changeInfo.url && changeInfo.status !== 'loading') return;
+    videoActions.leave(tabId);
     pageActions.leavePage(tabId);
     latestIntentByTab.delete(tabId);
     const entry = activeByTab.get(tabId);
@@ -641,6 +655,7 @@ export function registerBackground(chromeApi, {
 
   chromeApi.storage.onChanged?.addListener((changes, area) => {
     if (area !== 'local' || (!changes.settings && !glossaryAffectsTranslations(changes[GLOSSARY_STORAGE_KEY]))) return;
+    videoActions.cancelAll();
     pageActions.cancelAll();
     for (const entry of activeByTab.values()) invalidate(entry);
     // MV3 may have restarted the worker while a completed card remained open.

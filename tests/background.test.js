@@ -166,6 +166,7 @@ test('installs selection and page menus, preserves toolbar side panel, and prote
   listeners.installed();
   assert.deepEqual(calls.menus, [
     { id: 'translate-selection', title: '用 TransMate 翻译', contexts: ['selection'] },
+    { id: 'translate-video-captions', title: '翻译视频字幕', contexts: ['page', 'video'], documentUrlPatterns: ['http://*/*', 'https://*/*'] },
     { id: 'translate-page', title: '整页双语翻译', contexts: ['page'], documentUrlPatterns: ['http://*/*', 'https://*/*'] },
     { id: 'summarize-page', title: '总结网页重点', contexts: ['page'], documentUrlPatterns: ['http://*/*', 'https://*/*'] },
   ]);
