@@ -25,6 +25,7 @@ const fixturePage = `<!doctype html>
 <p id="inline-latest">inline latest</p>
 <p id="inline-close-slow">inline close slow</p>
 <p id="inline-switch-language">inline switch language</p>
+<p id="inline-stream-text">inline stream text</p>
 <p id="shortcut-paragraph">shortcut paragraph</p>
 <input id="shortcut-input" value="shortcut input">
 <iframe id="shortcut-frame" src="/inline-frame" title="Shortcut frame"></iframe>
@@ -109,6 +110,11 @@ const delayedInlineResponses = new Map([
   ['inline slow', { gate: deferred(), finished: deferred() }],
   ['inline close slow', { gate: deferred(), finished: deferred() }],
 ]);
+const textStreams = new Map([
+  ['panel stream text', deferred()],
+  ['inline stream text', deferred()],
+]);
+
 const languageResponses = new Map([
   ['panel switch language', { target: 'zh-CN', nextTarget: 'ja', translation: '側面パネルの日本語訳' }],
   ['panel stop', { target: 'ja', nextTarget: 'ja', translation: '停止後に再開した翻訳' }],
@@ -188,6 +194,18 @@ const server = createServer(async (request, response) => {
       response.writeHead(200).end(JSON.stringify({ choices: [{ message: { content } }] }));
     }
     delayed?.finished.resolve();
+    return;
+  }
+
+  const textStream = textStreams.get(text);
+  if (textStream) {
+    response.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    response.writeHead(200);
+    response.write('data: {"choices":[{"delta":{"content":"先显示这段，"}}]}\n\n');
+    await textStream.promise;
+    if (!response.destroyed) {
+      response.end('data: {"choices":[{"delta":{"content":"然后完成。"},"finish_reason":"stop"}]}\n\n');
+    }
     return;
   }
 
@@ -468,6 +486,17 @@ try {
   assert.equal(await panel.locator('#result-text').textContent(), '重试成功');
   assert.equal(retryAttempts, 2);
 
+  await panel.locator('#source-text').fill('panel stream text');
+  await panel.locator('#translate-button').click();
+  const panelPreview = panel.locator('#result-preview');
+  await panelPreview.filter({ hasText: '先显示这段，' }).waitFor();
+  assert.equal(requests.find(({ text }) => text === 'panel stream text').stream, true);
+  assert.equal(await panel.locator('#copy-button').isDisabled(), true);
+  await panel.getByRole('button', { name: '停止', exact: true }).click();
+  textStreams.get('panel stream text').resolve();
+  await panelPreview.waitFor({ state: 'hidden' });
+  assert.equal(await panel.locator('#result-text').isVisible(), false, '停止后不显示未完成的译文');
+
   const panelTarget = panel.locator('#target-language');
   const panelStop = panel.getByRole('button', { name: '停止', exact: true });
   const panelSource = panel.locator('#source-text');
@@ -715,6 +744,17 @@ try {
   assert.deepEqual(requestedTargets(selectedText), [saved.targetLanguage, 'ja', 'ja']);
   assert.equal(await options.evaluate(async () => (await chrome.storage.local.get('settings')).settings.targetLanguage),
     saved.targetLanguage, '卡片临时语言不得修改默认设置');
+  await inlineHost.getByRole('button', { name: '关闭翻译' }).click();
+  await inlineHost.waitFor({ state: 'detached' });
+
+  selectedText = await selectFixtureText(inlinePage, 'inline-stream-text');
+  await triggerContextMenu(worker, inlineTabId, 'translate-selection', selectedText);
+  await inlineHost.locator('.preview').filter({ hasText: '先显示这段，' }).waitFor();
+  assert.equal(requests.find(({ text }) => text === selectedText).stream, true);
+  assert.equal(await inlineHost.getByRole('button', { name: '复制译文' }).isVisible(), false);
+  textStreams.get('inline stream text').resolve();
+  await inlineHost.locator('.result').filter({ hasText: '先显示这段，然后完成。' }).waitFor();
+  assert.equal(await inlineHost.locator('.preview').isVisible(), false);
   await inlineHost.getByRole('button', { name: '关闭翻译' }).click();
   await inlineHost.waitFor({ state: 'detached' });
 
@@ -1036,6 +1076,7 @@ try {
   viewportStreamGate?.resolve();
   for (const delayed of delayedInlineResponses.values()) delayed.gate.resolve();
   for (const delayed of languageResponses.values()) delayed.gate.resolve();
+  for (const stream of textStreams.values()) stream.resolve();
   await context?.close();
   await new Promise((resolve) => server.close(resolve));
   await rm(tempDir, { recursive: true, force: true });

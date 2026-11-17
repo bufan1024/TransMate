@@ -5,6 +5,7 @@
   const MESSAGE = {
     show: 'TRANSMATE_INLINE_SHOW',
     result: 'TRANSMATE_INLINE_RESULT',
+    progress: 'TRANSMATE_INLINE_PROGRESS',
     invalidate: 'TRANSMATE_INLINE_INVALIDATE',
     hide: 'TRANSMATE_INLINE_HIDE',
     cancel: 'TRANSMATE_INLINE_CANCEL',
@@ -174,12 +175,12 @@
       overscroll-behavior: contain;
       padding: 1px 14px 8px;
     }
-    .result, .error, .source {
+    .result, .preview, .error, .source {
       margin: 0;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
     }
-    .result { font-size: 17px; font-weight: 550; line-height: 1.58; }
+    .result, .preview { font-size: 17px; font-weight: 550; line-height: 1.58; }
     .error { color: var(--error-ink); font-size: 13px; line-height: 1.6; }
     .card[data-notice="true"] .error { color: var(--ink); }
     .loading {
@@ -516,12 +517,15 @@
     const spinner = element('span', 'spinner');
     spinner.setAttribute('aria-hidden', 'true');
     loading.append(spinner, element('span', '', '正在翻译…'));
+    const preview = element('p', 'preview');
+    preview.dir = 'auto';
+    preview.setAttribute('aria-hidden', 'true');
     const result = element('p', 'result');
     result.dir = 'auto';
     const error = element('p', 'error');
     const announcement = element('p', 'sr-only');
     announcement.setAttribute('role', 'status');
-    body.append(loading, result, error, sourceSection);
+    body.append(loading, preview, result, error, sourceSection);
 
     const footer = element('div', 'footer');
     const optionsButton = element('button', 'action', '去设置');
@@ -586,7 +590,7 @@
 
     state.host = host;
     state.elements = {
-      card, heading, targetPicker, targetSelect, body, sourceSection, source, sourceToggle, loading, result, error, announcement,
+      card, heading, targetPicker, targetSelect, body, sourceSection, source, sourceToggle, loading, preview, result, error, announcement,
       footer, retryButton, optionsButton, stopButton, copyButton, copyLabel,
     };
     new ResizeObserver(schedulePosition).observe(body);
@@ -619,7 +623,7 @@
   function render() {
     if (!state.elements) return;
     const {
-      card, sourceSection, source, loading, result, error, announcement, footer,
+      card, sourceSection, source, loading, preview, result, error, announcement, footer,
       retryButton, optionsButton, stopButton, copyButton, copyLabel,
     } = state.elements;
     const focused = state.host.shadowRoot.activeElement;
@@ -633,6 +637,8 @@
     renderTarget();
     card.dataset.notice = String(state.notice);
     loading.hidden = !pending || state.notice;
+    preview.textContent = '';
+    preview.hidden = true;
     result.hidden = !succeeded;
     error.hidden = !failed;
     result.textContent = succeeded ? state.translation : '';
@@ -714,6 +720,20 @@
     if (!message || typeof message !== 'object') return;
     if (message.type === MESSAGE.show) {
       sendResponse({ ok: show(message) });
+      return;
+    }
+    if (message.type === MESSAGE.progress) {
+      const currentRequest = state.requestId !== null && message.requestId === state.requestId;
+      const replaced = state.restart?.requestId === message.requestId
+        || (state.restart?.queuedLanguage && state.restart.queuedLanguage !== state.targetLanguageId);
+      if (currentRequest && state.status === 'loading' && !state.notice && !replaced
+          && typeof message.delta === 'string' && message.delta) {
+        const { preview } = state.elements;
+        preview.append(message.delta);
+        preview.hidden = false;
+        schedulePosition();
+      }
+      sendResponse({ ok: currentRequest });
       return;
     }
     if (message.type === MESSAGE.result) {
