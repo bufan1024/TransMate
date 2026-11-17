@@ -662,6 +662,27 @@ try {
     '应按正文顺序发送文字，过滤隐藏、可编辑和导航内容',
   );
 
+  const intro = articlePage.locator('#article-intro');
+  const originalIntroHtml = await intro.evaluate((element) => {
+    window.authorLinkClicks = 0;
+    element.querySelector('a').addEventListener('click', (event) => {
+      event.preventDefault();
+      window.authorLinkClicks++;
+    });
+    return element.innerHTML;
+  });
+  const translateOnly = pageStatus.getByRole('button', { name: '仅译文', exact: true });
+  const restoreBilingual = pageStatus.getByRole('button', { name: '恢复双语', exact: true });
+  const beforeDisplayMode = requests.length;
+  await translateOnly.click();
+  assert.match(await intro.innerText(), /黄昏后寻找北极星/);
+  assert.doesNotMatch(await intro.innerText(), /Look for|after dusk/);
+  assert.equal(await intro.getByRole('link', { name: 'north star' }).isVisible(), true, '仅译文时仍可使用网页原有链接');
+  await intro.getByRole('link', { name: 'north star' }).click();
+  assert.equal(await articlePage.evaluate(() => window.authorLinkClicks), 1);
+  await articlePage.waitForTimeout(250);
+  assert.equal(requests.length, beforeDisplayMode, '切换显示模式不应发出翻译请求');
+
   const summaryRequestCount = requests.length;
   await triggerContextMenu(worker, articleTab.id, 'summarize-page');
   await waitUntil(async () => await panel.locator('#page-summary-text').isVisible()
@@ -678,6 +699,13 @@ try {
   );
   assert.deepEqual(await pageTranslations.allTextContents(), articleTranslations,
     '查看总结时保留已显示的双语段落');
+
+  const beforeRestoreDisplay = requests.length;
+  await restoreBilingual.click();
+  assert.equal(await intro.innerHTML(), originalIntroHtml, '恢复双语后还原作者提供的段落DOM');
+  await intro.getByRole('link', { name: 'north star' }).click();
+  assert.equal(await articlePage.evaluate(() => window.authorLinkClicks), 2, '切换后保留作者绑定的事件');
+  assert.equal(requests.length, beforeRestoreDisplay, '恢复双语无需重新请求');
 
   const beforeSummaryShortcut = requests.length;
   await triggerShortcut(worker, articleTab.id, 'summarize-page');
@@ -714,9 +742,11 @@ try {
   await triggerShortcut(worker, articleTab.id, 'translate-page');
   await pageStatus.getByRole('button', { name: '移除译文' }).waitFor();
   assert.deepEqual(await pageTranslations.allTextContents(), articleTranslations, '快捷键应翻译当前页正文');
+  await translateOnly.click();
   await articlePage.evaluate(() => history.pushState({}, '', '/article-next'));
   await pageStatus.waitFor({ state: 'detached' });
   assert.equal(await pageTranslations.count(), 0, '页内路由变化应清理旧译文');
+  assert.equal(await intro.innerHTML(), originalIntroHtml, '页内导航应恢复原文DOM');
   await panel.locator('#page-summary').waitFor({ state: 'hidden' });
 
   const viewportUrl = new URL('/viewport-fixture', endpoint).href;
@@ -734,6 +764,12 @@ try {
   assert.equal(requests[viewportRequestCount].stream, true, '网页翻译应向 AI 服务请求流式响应');
   assert.deepEqual(await pageTranslations.allTextContents(), [viewportBlocks[0][2]],
     'AI 响应尚未结束时应该已经出现第一段译文');
+  await translateOnly.click();
+  assert.match(await articlePage.locator('#viewport-intro').innerText(), /潮汐介绍/);
+  assert.doesNotMatch(await articlePage.locator('#viewport-intro').innerText(), /Viewport introduction/);
+  assert.equal(await articlePage.locator('#viewport-next').innerText(), viewportBlocks[1][1],
+    '尚未翻译的原文应保持显示');
+  await restoreBilingual.click();
   interruptViewportStream = true;
   viewportStreamGate.resolve();
   viewportStreamGate = undefined;
@@ -817,6 +853,7 @@ try {
   assert.deepEqual(requestedPageText(beforeDynamic), dynamicBlocks.slice(0, 2).map(([, text]) => text),
     '远处新增正文应在滚动到该处后发送');
 
+  await translateOnly.click();
   delayedPageTranslation = { gate: deferred(), finished: deferred() };
   const beforeReplacement = requests.length;
   await articlePage.locator('#dynamic-far').evaluate((paragraph, [id, text]) => {
@@ -843,13 +880,43 @@ try {
 
   const replacedTranslation = await pageTranslations.filter({ hasText: dynamicBlocks[3][2] }).elementHandle();
   const beforeIdenticalRender = requests.length;
-  await articlePage.locator('#dynamic-replacement').evaluate((paragraph) => paragraph.replaceWith(paragraph.cloneNode(true)));
+  await articlePage.locator('#dynamic-replacement').evaluate((paragraph, text) => {
+    const replacement = document.createElement('p');
+    replacement.id = paragraph.id;
+    replacement.textContent = text;
+    paragraph.replaceWith(replacement);
+  }, dynamicBlocks[3][1]);
   await waitUntil(async () => !await replacedTranslation.evaluate((element) => element.isConnected),
     '重新渲染相同的正文后移除旧译文节点');
   await pageTranslations.filter({ hasText: dynamicBlocks[3][2] }).waitFor({ timeout: 6000 });
   assert.equal(requests.length, beforeIdenticalRender, '重新渲染相同原文时复用本会话的译文');
+  const dynamicReplacement = articlePage.locator('#dynamic-replacement');
+  assert.equal(await dynamicReplacement.innerText(), dynamicBlocks[3][2], '后到译文遵循当前显示模式');
 
+  const originalCellHtml = '<em style="font-style: normal">Cell source</em><button type="button">Cell tool</button>';
+  await dynamicReplacement.evaluate((paragraph, html) => {
+    const table = document.createElement('table');
+    const cell = table.insertRow().insertCell();
+    cell.id = 'display-mode-cell';
+    cell.innerHTML = html;
+    paragraph.after(table);
+  }, originalCellHtml);
+  const displayModeCell = articlePage.locator('#display-mode-cell');
+  await displayModeCell.locator('[data-transmate-page-translation]').waitFor({ timeout: 6000 });
+  assert.doesNotMatch(await displayModeCell.innerText(), /Cell source/, '表格仅隐藏已翻译原文');
+  assert.equal(await displayModeCell.getByRole('button', { name: 'Cell tool' }).isVisible(), true);
+  const beforeCellEdit = requests.length;
+  await displayModeCell.locator('em').evaluate((emphasis) => {
+    const text = document.createTreeWalker(emphasis, NodeFilter.SHOW_TEXT).nextNode();
+    text.data = 'Edited cell';
+  });
+  await waitUntil(async () => (await displayModeCell.innerText()).includes('Edited cell'),
+    '作者更新的表格原文应恢复显示');
+  assert.equal(requests.length, beforeCellEdit, '已经翻译的正文变动不应擅自重译');
   await pageStatus.getByRole('button', { name: '移除译文' }).click();
+  assert.equal(await displayModeCell.innerHTML(), originalCellHtml.replace('Cell source', 'Edited cell'),
+    '关闭翻译时原地恢复作者样式并保留网页自行更新的文字');
+  assert.equal(await dynamicReplacement.innerText(), dynamicBlocks[3][1]);
   const beforeDynamicCancel = requests.length;
   await articlePage.locator('#dynamic-replacement').evaluate((paragraph) => {
     const another = document.createElement('p');
@@ -859,7 +926,7 @@ try {
   await articlePage.waitForTimeout(300);
   assert.equal(requests.length, beforeDynamicCancel, '取消后监听停止，不再提交动态正文');
 
-  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、取消旧结果、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译、整页失败恢复、动态正文和网页重点总结');
+  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、取消旧结果、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译、整页失败恢复、动态正文、网页原文替换模式和网页重点总结');
   console.log('Mock POST requests: ' + requests.map((item) => item.text).join(', '));
 } finally {
   releaseSlowResponse?.();

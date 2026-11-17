@@ -31,6 +31,7 @@
     retryable: '关闭', error: '关闭',
   };
 
+  const originalWrappers = new WeakSet();
   let session = null;
   let status = null;
   let dismissedRequestId = null;
@@ -74,7 +75,9 @@
     function record(run, final = false) {
       const joined = run.parts.join('');
       const text = (run.preformatted ? joined : joined.replace(/ *\n */g, '\n').replace(/ {2,}/g, ' ')).trim();
+      const sourceNodes = run.sourceNodes;
       run.parts.length = 0;
+      run.sourceNodes = [];
       if (!text) return;
       const after = afterAnchor(run, final && !run.divided);
       const firstTextNode = run.firstTextNode;
@@ -95,7 +98,10 @@
       }
       if (!included) return;
       blocks.push({ id, text: included });
-      anchors.set(id, { after, parent: after.parentNode, container: run.container, firstTextNode, lastTextNode });
+      anchors.set(id, {
+        after, parent: after.parentNode, container: run.container, firstTextNode, lastTextNode,
+        sourceNodes, completeSource: included === text,
+      });
       length += included.length;
     }
 
@@ -106,13 +112,20 @@
           const text = run.preformatted ? child.data : child.data.replace(/\s+/g, ' ');
           run.parts.push(text);
           if (text.trim()) {
+            run.sourceNodes.push(child);
             run.firstTextNode ||= child;
             run.lastTextNode = child;
           }
         } else if (child.nodeType === Node.ELEMENT_NODE) {
+          // Read author text through our own hidden wrappers, including when summarizing.
+          if (originalWrappers.has(child)) {
+            readChildren(child, run);
+            continue;
+          }
           const style = readableStyle(child);
           if (!style) continue;
           if (child.tagName === 'BR') {
+            run.sourceNodes.push(child);
             run.parts.push('\n');
           } else if (startsBlock(child, style)) {
             record(run);
@@ -127,7 +140,7 @@
 
     function readContainer(container) {
       const run = {
-        container, parts: [], firstTextNode: null, lastTextNode: null,
+        container, parts: [], sourceNodes: [], firstTextNode: null, lastTextNode: null,
         divided: false, preformatted: container.tagName === 'PRE',
       };
       readChildren(container, run);
@@ -194,9 +207,14 @@
     range.setEndAfter(lastTextNode);
   }
 
-  function sourceAttached({ firstTextNode, lastTextNode, after, parent, container }) {
+  function placementAnchor(target) {
+    return target.wrappedAfter || target.after;
+  }
+
+  function sourceAttached(target) {
+    const { firstTextNode, lastTextNode, parent, container } = target;
     return container.isConnected && container.contains(firstTextNode) && container.contains(lastTextNode)
-      && after.parentNode === parent;
+      && placementAnchor(target).parentNode === parent;
   }
 
   function sourceMatches(range, anchor) {
@@ -287,22 +305,37 @@
       }));
     }
 
-    let removed = false;
-    for (const [id, node] of entry.inserted) {
-      if (node.isConnected && !sourceAttached(entry.anchors.get(id))) {
-        node.remove();
-        removed = true;
+    let displayChanged = false;
+    preserveDiscovery(entry, () => {
+      const range = document.createRange();
+      for (const [id, node] of entry.inserted) {
+        const target = entry.anchors.get(id);
+        if (!sourceAttached(target)) {
+          restoreOriginal(target);
+          if (node.isConnected) {
+            node.remove();
+            displayChanged = true;
+          }
+        } else if (target.originalWrappers && !sourceMatches(range, target)) {
+          restoreOriginal(target);
+          if (node.isConnected) placeTranslation(entry, id, target, node);
+          displayChanged = true;
+        }
       }
-    }
+      if (displayChanged) refreshScrollPositions(entry);
+    });
     const activeCount = attachedBlocks(entry).length;
     const changed = activeCount !== entry.activeCount;
     entry.activeCount = activeCount;
-    return changed || removed || count !== entry.blocks.length || truncated !== entry.truncated;
+    return changed || displayChanged || count !== entry.blocks.length || truncated !== entry.truncated;
   }
 
   function relevantMutation(entry, record) {
     if (!entry.root?.isConnected) return true;
     if (!entry.root.contains(record.target)) return false;
+    if (record.type === 'characterData') {
+      return entry.onlyTranslation && !record.target.parentElement?.closest(EXCLUDED);
+    }
     if (record.type === 'attributes') return !record.target.parentElement?.closest(EXCLUDED);
     if (record.target.closest?.(EXCLUDED)) return false;
     return [...record.addedNodes, ...record.removedNodes].some((node) => (
@@ -311,20 +344,32 @@
     ));
   }
 
+  function scheduleDiscovery(entry, records) {
+    if (entry.mutationTimer !== undefined || !records.some((record) => relevantMutation(entry, record))) return;
+    entry.mutationTimer = setTimeout(() => {
+      entry.mutationTimer = undefined;
+      if (session !== entry) return;
+      const discovered = discoverBlocks(entry);
+      if (captureDemand(entry) || discovered) void sendPageEvent('TRANSMATE_PAGE_MORE', entry.requestId);
+    }, MUTATION_INTERVAL_MS);
+  }
+
+  function preserveDiscovery(entry, change) {
+    const observer = entry.mutationObserver;
+    if (observer) scheduleDiscovery(entry, observer.takeRecords());
+    change();
+    // Our display changes are synchronous. Retain earlier author mutations but
+    // do not mistake our wrapper or placement changes for newly arrived text.
+    observer?.takeRecords();
+  }
+
   function observePage(entry) {
     observeScroll(entry);
     if (entry.mutationObserver) return;
-    entry.mutationObserver = new MutationObserver((records) => {
-      if (entry.mutationTimer !== undefined || !records.some((record) => relevantMutation(entry, record))) return;
-      entry.mutationTimer = setTimeout(() => {
-        entry.mutationTimer = undefined;
-        if (session !== entry) return;
-        const discovered = discoverBlocks(entry);
-        if (captureDemand(entry) || discovered) void sendPageEvent('TRANSMATE_PAGE_MORE', entry.requestId);
-      }, MUTATION_INTERVAL_MS);
-    });
+    entry.mutationObserver = new MutationObserver((records) => scheduleDiscovery(entry, records));
     entry.mutationObserver.observe(document, {
-      childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'aria-hidden', 'inert', 'open'],
+      childList: true, subtree: true, characterData: true,
+      attributes: true, attributeFilter: ['hidden', 'aria-hidden', 'inert', 'open'],
     });
   }
 
@@ -341,6 +386,7 @@
   function clearSession() {
     if (!session) return;
     stopObserving(session);
+    for (const target of session.anchors.values()) restoreOriginal(target);
     for (const node of session.inserted.values()) node.remove();
     session = null;
   }
@@ -370,7 +416,8 @@
     if (!page.blocks.length) return { ok: false, error: '此页面没有可处理的正文。请在有正文的网页上重试。' };
     if (mode === 'summary') return { ok: true, blocks: page.blocks, truncated: page.truncated };
     session = {
-      requestId, root: page.root, blocks: [], anchors: new Map(), knownNodes: new WeakSet(),
+      requestId, root: page.root, onlyTranslation: false,
+      blocks: [], anchors: new Map(), knownNodes: new WeakSet(),
       characters: 0, truncated: false, demand: new Set(), lastBatch: new Set(),
       inserted: new Map(), renderedByAnchor: new Map(), translationsByText: new Map(),
     };
@@ -429,30 +476,97 @@
     return { ok: true, completed: completedBlocks(session) };
   }
 
+  function hideOriginal(target) {
+    if (!target.completeSource || target.originalWrappers) return;
+    target.originalWrappers = [];
+    for (const node of target.sourceNodes) {
+      const parent = node.parentElement;
+      // Keep usable link labels visible. A paragraph translation does not
+      // identify which translated words belong to the original link.
+      if (!(parent instanceof HTMLElement) || parent.closest('a[href], [role="link"], label')) continue;
+      const wrapper = document.createElement('span');
+      originalWrappers.add(wrapper);
+      wrapper.style.setProperty('display', 'none', 'important');
+      node.before(wrapper);
+      wrapper.append(node);
+      target.originalWrappers.push(wrapper);
+      if (node === target.after) target.wrappedAfter = wrapper;
+    }
+  }
+
+  function restoreOriginal(target) {
+    if (!target.originalWrappers) return;
+    for (const wrapper of target.originalWrappers) wrapper.replaceWith(...wrapper.childNodes);
+    target.originalWrappers = null;
+    target.wrappedAfter = null;
+  }
+
+  function placeTranslation(entry, id, target, node) {
+    const replace = entry.onlyTranslation && Boolean(target.originalWrappers);
+    if (replace && target.after === target.container) {
+      // Use the author's paragraph/heading layout when the output belongs to
+      // that whole container. Mixed runs and cells retain their local anchor.
+      target.container.append(node);
+    } else {
+      const earlier = entry.renderedByAnchor.get(target.after)
+        .findLast((item) => item.id < id && item.node.parentNode === target.parent);
+      (earlier?.node || placementAnchor(target)).after(node);
+    }
+    node.style.cssText = replace
+      ? 'color: inherit; white-space: pre-wrap; overflow-wrap: anywhere;'
+      : `display: block; color: inherit; margin: .45em 0 .8em;
+         border-inline-start: 2px solid #c45632; padding-inline-start: .65em;
+         font-size: 1em; font-weight: normal; white-space: pre-wrap; overflow-wrap: anywhere;`;
+  }
+
+  function refreshScrollPositions(entry) {
+    // These layout changes can shift the browser's scroll anchor. Record the
+    // resulting offset so changing modes alone does not request new text.
+    document.documentElement.getBoundingClientRect();
+    for (const element of entry.scrollPositions.keys()) entry.scrollPositions.set(element, scrollPosition(element));
+  }
+
+  function switchDisplayMode(entry) {
+    entry.onlyTranslation = !entry.onlyTranslation;
+    preserveDiscovery(entry, () => {
+      const range = document.createRange();
+      for (const [id, node] of entry.inserted) {
+        const target = entry.anchors.get(id);
+        if (!entry.onlyTranslation) restoreOriginal(target);
+        if (!sourceAttached(target) || !node.isConnected) continue;
+        // An old translation must not hide text the site has since edited.
+        if (entry.onlyTranslation && sourceMatches(range, target)) hideOriginal(target);
+        placeTranslation(entry, id, target, node);
+      }
+      refreshScrollPositions(entry);
+    });
+  }
+
   function renderTranslations(entry, pending) {
-    for (const [id, { target, text }] of pending) {
-      const node = document.createElement('span');
-      node.setAttribute(TRANSLATION_ATTRIBUTE, String(id));
-      node.setAttribute('translate', 'no');
-      node.style.cssText = `display: block; color: inherit; margin: .45em 0 .8em;
-        border-inline-start: 2px solid #c45632; padding-inline-start: .65em;
-        font-size: 1em; font-weight: normal; white-space: pre-wrap; overflow-wrap: anywhere;`;
-      node.textContent = text;
-      const rendered = entry.renderedByAnchor.get(target.after) || [];
-      const previous = rendered.findLast((item) => item.id < id && item.node.parentNode === target.parent);
-      (previous?.node || target.after).after(node);
-      rendered.push({ id, node });
-      rendered.sort((first, second) => first.id - second.id);
-      entry.renderedByAnchor.set(target.after, rendered);
-      entry.inserted.set(id, node);
-      entry.translationsByText.set(entry.blocks[id - 1].text, text);
-    }
-    if (pending.size) {
-      // Adding a translation can shift the browser's scroll anchor. Refresh the
-      // positions after layout without collecting another set of blocks.
-      document.documentElement.getBoundingClientRect();
-      for (const element of entry.scrollPositions.keys()) entry.scrollPositions.set(element, scrollPosition(element));
-    }
+    if (!pending.size) return;
+    preserveDiscovery(entry, () => {
+      for (const [id, { target, text }] of pending) {
+        const node = document.createElement('span');
+        node.setAttribute(TRANSLATION_ATTRIBUTE, String(id));
+        node.setAttribute('translate', 'no');
+        node.textContent = text;
+        const rendered = entry.renderedByAnchor.get(target.after) || [];
+        rendered.push({ id, node });
+        rendered.sort((first, second) => first.id - second.id);
+        entry.renderedByAnchor.set(target.after, rendered);
+        if (entry.onlyTranslation) hideOriginal(target);
+        placeTranslation(entry, id, target, node);
+        entry.inserted.set(id, node);
+        entry.translationsByText.set(entry.blocks[id - 1].text, text);
+      }
+      refreshScrollPositions(entry);
+    });
+  }
+
+  function updateDisplayModeButton() {
+    const current = session?.requestId === status.requestId ? session : null;
+    status.displayMode.hidden = !current;
+    status.displayMode.textContent = current?.onlyTranslation ? '恢复双语' : '仅译文';
   }
 
   function showStatus({ requestId, status: kind, message }) {
@@ -478,7 +592,7 @@
           border-radius: 10px; background: #fffdf8; color: #20231f; box-shadow: 0 4px 18px #20231f26;
           font: 13px/1.5 system-ui, sans-serif; }
         span { overflow-wrap: anywhere; }
-        .actions { display: inline-flex; gap: 6px; flex: none; }
+        .actions { display: inline-flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: end; gap: 6px; max-width: 68%; }
         button { flex: none; border: 1px solid #e5dfd3; border-radius: 6px; background: #fffdf8;
           color: #20231f; padding: 5px 8px; font: inherit; cursor: pointer; }
         button:hover { background: #f5f1e8; }
@@ -501,19 +615,27 @@
         retry.disabled = true;
         void sendPageEvent('TRANSMATE_PAGE_RETRY', requestId).finally(() => { retry.disabled = false; });
       });
+      const displayMode = document.createElement('button');
+      displayMode.type = 'button';
+      displayMode.addEventListener('click', (event) => {
+        if (!event.isTrusted || status?.requestId !== requestId || session?.requestId !== requestId) return;
+        switchDisplayMode(session);
+        updateDisplayModeButton();
+      });
       const actions = document.createElement('span');
       actions.className = 'actions';
-      actions.append(retry, button);
+      actions.append(retry, displayMode, button);
       card.append(label, actions);
       shadow.append(style, card);
       (document.body || document.documentElement).append(host);
-      status = { requestId, host, label, button, retry };
+      status = { requestId, host, label, button, retry, displayMode };
     }
     const retryHadFocus = status.host.shadowRoot.activeElement === status.retry;
     status.kind = kind;
     status.label.textContent = typeof message === 'string' ? message : '';
     status.button.textContent = STATUS_LABELS[kind];
     status.retry.hidden = kind !== 'retryable';
+    updateDisplayModeButton();
     if (retryHadFocus && status.retry.hidden) status.button.focus({ preventScroll: true });
     return { ok: true };
   }
