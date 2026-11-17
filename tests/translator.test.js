@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { translate } from '../lib/translator.js';
+import { streamCompletion, translate } from '../lib/translator.js';
 
 const settings = {
   provider: 'custom',
@@ -53,6 +53,68 @@ test('translate rejects partial text when the provider reports an output length 
       }),
     }),
   }), /译文因长度限制而中断.*输出上限更高的模型/);
+});
+
+test('Azure OpenAI sends only the Azure resource key in ordinary and streaming completions', async () => {
+  const resource = 'https://resource-a.services.ai.azure.com';
+  const requests = [];
+  const origins = [];
+  const options = {
+    text: 'Hello',
+    settings: { ...settings, provider: 'azure-openai', endpoint: resource, model: 'translation-deployment' },
+    permissionsApi: { contains: async ({ origins: requested }) => { origins.push(...requested); return true; } },
+    fetchImpl: async (url, init) => {
+      const body = JSON.parse(init.body);
+      requests.push({ url, init, body });
+      if (body.stream) {
+        return new Response([
+          'data: {"prompt_filter_results":[],"choices":[]}',
+          'data: {"choices":[{"index":0,"delta":{"content":"流式译文"}}]}',
+          'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+          'data: [DONE]',
+          '',
+        ].join('\n\n'), { headers: { 'Content-Type': 'text/event-stream' } });
+      }
+      return Response.json({ choices: [{ message: { content: '普通译文' } }] });
+    },
+  };
+  assert.equal(await translate(options), '普通译文');
+  const streamed = [];
+  for await (const chunk of streamCompletion({ ...options, makeSystemPrompt: () => 'Translate' })) {
+    streamed.push(chunk);
+  }
+  assert.deepEqual(streamed, [{ content: '流式译文', streaming: true }]);
+  assert.deepEqual(origins, [resource + '/*', resource + '/*']);
+  assert.deepEqual(requests.map(({ body }) => body.stream), [false, true]);
+  for (const { url, init, body } of requests) {
+    assert.equal(url, resource + '/openai/v1/chat/completions');
+    assert.equal(init.method, 'POST');
+    assert.deepEqual(init.headers, { 'Content-Type': 'application/json', 'api-key': 'private-key' });
+    assert.equal(init.redirect, 'error');
+    assert.equal(init.credentials, 'omit');
+    assert.equal(body.model, 'translation-deployment');
+  }
+});
+
+test('Azure OpenAI rejects unauthorized or anonymous requests and omits provider error details', async () => {
+  let calls = 0;
+  const azure = { ...settings, provider: 'azure-openai', endpoint: 'https://resource-a.openai.azure.com' };
+  const attempt = {
+    text: 'Hello',
+    settings: azure,
+    fetchImpl: async () => {
+      calls += 1;
+      return { ok: false, status: 404, text: () => assert.fail('Unexpected provider body read') };
+    },
+  };
+  await assert.rejects(() => translate({ ...attempt, settings: { ...azure, authType: 'none' } }), /认证方式/);
+  await assert.rejects(
+    () => translate({ ...attempt, permissionsApi: { contains: async () => false } }),
+    /缺少 AI 服务的网站访问权限/,
+  );
+  assert.equal(calls, 0);
+  await assert.rejects(() => translate(attempt), /HTTP 404.*部署名称/);
+  assert.equal(calls, 1);
 });
 
 test('translate rejects empty and overlong text before a network request', async () => {

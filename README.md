@@ -38,6 +38,8 @@
 
 保存、测试或切换配置时，Chrome 会就对应的服务域名申请网络访问权限。扩展只请求这套配置的具体域名。不同服务商若采用其他请求或响应协议，需要单独适配。
 
+选择「Azure OpenAI」时，填写 Azure 门户里的 HTTPS 资源地址（`https://<资源名>.openai.azure.com` 或 `https://<资源名>.services.ai.azure.com`）、该资源的 API Key，以及支持 Chat Completions 的模型**部署名称**。资源根地址、`/openai/v1` 或完整的 `/openai/v1/chat/completions` 均可填写，保存时会统一为完整地址。此预设使用 Azure OpenAI v1 的 `api-key` 请求头。Azure 的日期版本接口和 Microsoft Entra ID 不在此预设的支持范围内。[Microsoft Azure OpenAI v1 API](https://learn.microsoft.com/en-us/azure/foundry/openai/latest)
+
 设置页不会回填已保存的 API Key。编辑同一套配置时，若服务、完整接口地址和认证方式都未变，密钥栏留空即可沿用这套配置的密钥。切换为无需密钥并保存会清除这套配置的旧密钥。删除配置也会移除它的密钥，或可单独清除当前编辑的密钥。更新或删除配置后，扩展会尝试撤销其他有效配置均未使用的旧域名权限。手动撤销会影响使用该域名的所有配置，重置会清除所有配置并尝试撤销全部已授权域名。若授权撤销失败，设置页会提示部分完成，并保留手动撤销入口。取消连接检测时，Chrome 的授权弹窗仍可能留下新的域名授权，可在列表中撤销。
 
 ## 数据与权限

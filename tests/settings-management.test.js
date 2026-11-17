@@ -51,6 +51,23 @@ test('saved credentials are reused only with the same authentication method', ()
   assert.deepEqual(resolveSettings(local, saved), local);
 });
 
+test('an Azure key can be reused only for an equivalent URL on the same configured resource', () => {
+  const resource = 'https://resource-a.openai.azure.com';
+  const endpoint = resource + '/openai/v1/chat/completions';
+  const azure = { ...saved, provider: 'azure-openai', endpoint, authType: 'api-key' };
+  const draft = { ...azure, endpoint: resource + '/openai/v1/', apiKey: '', authType: undefined, model: 'deployment-b' };
+  assert.deepEqual(resolveSettings(draft, azure), { ...azure, model: 'deployment-b' });
+  for (const changed of [
+    { endpoint: 'https://resource-b.openai.azure.com' },
+    { endpoint: 'https://resource-a.services.ai.azure.com' },
+    { endpoint: 'https://resource-a.openai.azure.com:8443' },
+    { provider: 'custom', endpoint, authType: 'api-key' },
+    { authType: 'bearer' },
+  ]) {
+    assert.equal(canReuseSavedKey({ ...draft, ...changed }, azure), false);
+  }
+});
+
 test('manual removal targets only a currently granted exact origin', async () => {
   const calls = [];
   const permissionsApi = {
