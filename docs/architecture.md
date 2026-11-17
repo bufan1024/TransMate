@@ -31,6 +31,7 @@
 | --- | --- | --- |
 | `chrome.storage.local` | `serviceProfiles` | 已命名的本机 AI 配置与当前配置 ID，含各自的 API Key，仅可信扩展上下文可读 |
 | `chrome.storage.local` | `settings` | 当前服务配置，含 API Key。与 `serviceProfiles` 同次写入，供现有翻译入口读取 |
+| `chrome.storage.local` | `translationGlossary` | 独立保存本机固定译法与启用状态。使用同一设置锁写入，仅把目标语言和当前请求正文匹配的词对加入翻译提示 |
 | `chrome.storage.session` | `inlineSelection:<tabId>:<requestId>` | 暂存浮层原文与来源信息，使 Worker 休眠后仍能重试。新浮层、关闭和页面离开时清理相关记录 |
 | `chrome.storage.session` | `pageTranslation:<tabId>:<requestId>` | 保存双语翻译的请求与文档标识，使 Worker 休眠后可在下一次滚动时继续 |
 | `chrome.storage.session` | `pendingSelection:<windowId>:<id>` | 后台交给侧栏的独立选文事件。卡片交接可附已有译文与目标语言。`lib/selection.js` 校验同窗口、非空和 30 秒有效期，侧栏按事件顺序消费并清理 |

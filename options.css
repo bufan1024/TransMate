@@ -47,3 +47,9 @@ button,input,textarea,select{font:inherit}button{cursor:pointer}button:disabled{
 @media(max-width:700px){.page-shell{display:block}.story-panel,.story-inner{min-height:0}.story-inner{padding:22px 25px 28px}.story-copy{padding:34px 0 7px;margin:0}.story-copy h1{font-size:38px}.story-copy p{max-width:100%;margin-bottom:0}.story-steps,.story-bottom,.story-watermark{display:none}.settings-inner{padding:25px}.topline{padding-bottom:17px}.page-heading{padding-top:26px}.field-row{grid-template-columns:1fr;gap:0}}
 @media(max-width:420px){.topline-indicator{display:none}.provider-grid{gap:6px}.provider-option{padding:9px}.form-actions{display:grid;grid-template-columns:1fr 1fr}.save-button{min-width:0;gap:6px}.test-button{padding:0 8px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+
+.glossary-toggle { display: flex; align-items: center; gap: 7px; margin: 13px 0; font-size: 12px; }
+.glossary-toggle input { accent-color: var(--accent-dark); }
+#glossary-list li > div:first-child { min-width: 0; }
+#glossary-list li small { display: block; margin-top: 3px; color: var(--muted); }
+.glossary-row-actions { display: flex; flex: none; gap: 6px; }

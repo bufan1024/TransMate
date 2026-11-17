@@ -285,3 +285,27 @@ test('page summary reports provider truncation instead of showing partial findin
     }),
   }), /总结因长度限制而中断/);
 });
+
+test('each page translation batch includes only terms from that batch and its target language', async () => {
+  const blocks = [...Array.from({ length: 20 }, (_, id) => ({ id, text: id === 0 ? 'An early phrase' : 'Filler' })),
+    { id: 20, text: 'A late phrase' }];
+  const prompts = [];
+  await translatePage({
+    blocks,
+    settings: { ...settings, targetLanguage: 'zh-CN' },
+    glossary: { version: 1, enabled: true, entries: [
+      { source: 'early phrase', target: '先出现的术语', targetLanguage: 'zh-CN' },
+      { source: 'late phrase', target: '稍后出现的术语', targetLanguage: 'zh-CN' },
+      { source: 'late phrase', target: '別の言語', targetLanguage: 'ja' },
+    ] },
+    fetchImpl: mockService((pieces, prompt) => {
+      prompts.push(prompt);
+      return JSON.stringify(pieces.map(({ id }) => ({ id, text: '译文' })));
+    }),
+  });
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[0], /先出现的术语/);
+  assert.doesNotMatch(prompts[0], /稍后出现的术语|別の言語/);
+  assert.match(prompts[1], /稍后出现的术语/);
+  assert.doesNotMatch(prompts[1], /先出现的术语|別の言語/);
+});
