@@ -40,6 +40,17 @@ test('typed key replaces the saved key for a new service', () => {
   assert.equal(resolveSettings({ ...next, apiKey: '  new-private-key  ' }, saved).apiKey, 'new-private-key');
 });
 
+test('saved credentials are reused only with the same authentication method', () => {
+  const headerProfile = { ...saved, authType: 'x-api-key' };
+  assert.equal(resolveSettings({ ...headerProfile, apiKey: '' }, headerProfile).apiKey, saved.apiKey);
+  assert.equal(canReuseSavedKey({ ...headerProfile, apiKey: '' }, saved), false);
+  assert.equal(canReuseSavedKey({ ...headerProfile, authType: 'api-key' }, headerProfile), false);
+  assert.throws(() => resolveSettings({ ...headerProfile, authType: 'api-key', apiKey: '' }, headerProfile), /API Key/);
+  assert.equal(canReuseSavedKey({ ...saved, authType: 'bearer' }, saved), true);
+  const local = { ...saved, endpoint: 'http://localhost:5000/complete', authType: 'none', apiKey: '' };
+  assert.deepEqual(resolveSettings(local, saved), local);
+});
+
 test('manual removal targets only a currently granted exact origin', async () => {
   const calls = [];
   const permissionsApi = {

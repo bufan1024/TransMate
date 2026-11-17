@@ -54,9 +54,22 @@
 
             <section class="form-section" aria-labelledby="connection-heading">
               <div class="section-heading"><span class="section-number">02</span><h3 id="connection-heading">连接信息</h3><span class="heading-rule"></span></div>
-              <div class="field"><label for="endpoint">接口地址 <span class="required">*</span></label><input id="endpoint" name="endpoint" type="url" inputmode="url" autocomplete="url" placeholder="https://example.com/v1/chat/completions" required /><small>填写完整的 Chat Completions 接口地址。仅本机服务可使用 HTTP。</small></div>
+              <div class="field"><label for="endpoint">接口地址 <span class="required">*</span></label><input id="endpoint" name="endpoint" type="url" inputmode="url" autocomplete="url" placeholder="https://example.com/v1/chat/completions" required /><small id="endpoint-help">填写完整的 Chat Completions 接口地址。仅本机服务可使用 HTTP。</small></div>
+              <div class="field" id="custom-authentication" hidden>
+                <label for="auth-type">认证方式</label>
+                <div class="select-wrap">
+                  <select id="auth-type" name="authType">
+                    <option value="bearer">Bearer API Key</option>
+                    <option value="x-api-key">x-api-key 请求头</option>
+                    <option value="api-key">api-key 请求头</option>
+                    <option value="none">本机服务无需密钥</option>
+                  </select>
+                  <span aria-hidden="true">⌄</span>
+                </div>
+                <small>无需密钥仅适用于 localhost 和 127.0.0.1。</small>
+              </div>
               <div class="field-row">
-                <div class="field"><label for="api-key">API Key <span class="required">*</span></label><input id="api-key" name="apiKey" type="password" autocomplete="off" spellcheck="false" aria-describedby="key-status" placeholder="填写新的 API Key" /><small id="key-status">正在读取已保存配置…</small></div>
+                <div class="field" id="api-key-field"><label for="api-key">API Key <span class="required">*</span></label><input id="api-key" name="apiKey" type="password" autocomplete="off" spellcheck="false" aria-describedby="key-status" placeholder="填写新的 API Key" /><small id="key-status">正在读取已保存配置…</small></div>
                 <div class="field"><label for="model">模型 ID <span class="required">*</span></label><input id="model" name="model" type="text" autocomplete="off" spellcheck="false" placeholder="填写服务支持的模型 ID" required /></div>
               </div>
             </section>

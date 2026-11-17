@@ -138,6 +138,34 @@ test('saving the same host retains its grant, while changing hosts retires only 
   assert.deepEqual([...env.origins], [newOrigin, unrelatedOrigin]);
 });
 
+test('a keyless local configuration keeps its host grant until the profile is deleted', async () => {
+  const localOrigin = 'http://127.0.0.1/*';
+  const local = {
+    ...original, endpoint: 'http://127.0.0.1:5000/complete', authType: 'none', apiKey: '',
+  };
+  const env = fixture(original, [oldOrigin, localOrigin]);
+  const checked = [];
+  const contains = env.permissionsApi.contains;
+  env.permissionsApi.contains = (request) => {
+    checked.push(...request.origins);
+    return contains(request);
+  };
+  const { activeId } = await profiles.readServiceProfiles(env.storageArea);
+  const { profile } = await profiles.saveSettingsWithPermission({
+    ...env, profileId: null, name: '本机服务', draft: { ...local, apiKey: original.apiKey },
+  });
+  await profiles.activateServiceProfile({ ...env, profileId: profile.id, expectedOrigin: localOrigin });
+  assert.deepEqual(env.store.settings, local);
+  assert.deepEqual(checked, [localOrigin, localOrigin]);
+
+  await profiles.deleteServiceProfile({ ...env, profileId: activeId });
+  assert.deepEqual([...env.origins], [localOrigin]);
+  assert.equal((await profiles.clearServiceProfileKey({ ...env, profileId: profile.id })).noKey, true);
+  assert.deepEqual([...env.origins], [localOrigin]);
+  await profiles.deleteServiceProfile({ ...env, profileId: profile.id });
+  assert.deepEqual([...env.origins], []);
+});
+
 test('failed persistence leaves grants untouched and failed permission cleanup reports partial success', async () => {
   const env = fixture();
   const { activeId } = await profiles.readServiceProfiles(env.storageArea);
