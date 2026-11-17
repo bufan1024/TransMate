@@ -1,4 +1,4 @@
-import { DEFAULT_AUTH_TYPE, DEFAULT_SETTINGS, PROVIDERS, originPatternForEndpoint } from "./lib/config.js";
+import { AZURE_OPENAI_PROVIDER, DEFAULT_AUTH_TYPE, DEFAULT_SETTINGS, PROVIDERS, defaultAuthTypeForProvider, originPatternForEndpoint } from "./lib/config.js";
 import { checkConnection } from "./lib/connection-check.js";
 import {
   DEFAULT_PROFILE_NAME, SERVICE_PROFILES_KEY, SettingsOperationError, activateServiceProfile,
@@ -13,12 +13,16 @@ const newProfileButton = document.querySelector("#new-profile");
 const activateProfileButton = document.querySelector("#activate-profile");
 const deleteProfileButton = document.querySelector("#delete-profile");
 const providerList = document.querySelector("#provider-list");
+const endpointLabel = document.querySelector("#endpoint-label");
 const endpointInput = document.querySelector("#endpoint");
 const endpointHelp = document.querySelector("#endpoint-help");
 const customAuthentication = document.querySelector("#custom-authentication");
 const authTypeInput = document.querySelector("#auth-type");
 const apiKeyField = document.querySelector("#api-key-field");
+const apiKeyLabel = document.querySelector("#api-key-label");
 const apiKeyInput = document.querySelector("#api-key");
+const modelLabel = document.querySelector("#model-label");
+const modelHelp = document.querySelector("#model-help");
 const modelInput = document.querySelector("#model");
 const targetInput = document.querySelector("#target-language");
 const promptInput = document.querySelector("#prompt");
@@ -72,7 +76,7 @@ function setProvider(id) {
 
 function formSettings() {
   const provider = selectedProvider();
-  const authType = provider === "custom" ? authTypeInput.value : DEFAULT_AUTH_TYPE;
+  const authType = provider === "custom" ? authTypeInput.value : defaultAuthTypeForProvider(provider);
   return {
     provider,
     endpoint: endpointInput.value.trim(),
@@ -88,14 +92,28 @@ function renderKeyStatus() {
   const draft = formSettings();
   customAuthentication.hidden = draft.provider !== "custom";
   apiKeyField.hidden = draft.authType === "none";
-  endpointHelp.textContent = customAuthentication.hidden
-    ? "填写完整的 Chat Completions 接口地址。仅本机服务可使用 HTTP。"
-    : "填写服务的完整 Chat Completions 请求地址。自定义接口可使用不同路径。";
   if (draft.apiKey) keyStatus.textContent = "将使用新填写的密钥；保存后才写入本机。";
   else if (canReuseSavedKey(draft, savedSettings)) keyStatus.textContent = "此服务已有保存的密钥；留空即可沿用。";
   else if (savedSettings?.apiKey) keyStatus.textContent = "服务、接口或认证方式已更改，请填写新的 API Key。";
   else keyStatus.textContent = "尚无已保存的密钥，请填写 API Key。";
   clearKeyButton.disabled = operationBusy || !savedSettings?.apiKey;
+}
+
+function renderServiceFields() {
+  const provider = selectedProvider();
+  const isAzure = provider === AZURE_OPENAI_PROVIDER;
+  endpointLabel.textContent = isAzure ? "Azure 资源地址" : "接口地址";
+  endpointInput.placeholder = isAzure
+    ? "https://your-resource.openai.azure.com"
+    : "https://example.com/v1/chat/completions";
+  endpointHelp.textContent = {
+    [AZURE_OPENAI_PROVIDER]: "填写 Azure 资源的 HTTPS 地址，也可使用 /openai/v1 或完整的 Chat Completions v1 地址。",
+    custom: "填写服务的完整 Chat Completions 请求地址。自定义接口可使用不同路径。",
+  }[provider] ?? "填写完整的 Chat Completions 接口地址。仅本机服务可使用 HTTP。";
+  apiKeyLabel.textContent = isAzure ? "Azure 资源 API Key" : "API Key";
+  modelLabel.textContent = isAzure ? "部署名称" : "模型 ID";
+  modelInput.placeholder = isAzure ? "填写 Azure 部署名称" : "填写服务支持的模型 ID";
+  modelHelp.hidden = !isAzure;
 }
 
 function fillForm(settings) {
@@ -106,6 +124,7 @@ function fillForm(settings) {
   modelInput.value = settings.model || "";
   targetInput.value = settings.targetLanguage || DEFAULT_SETTINGS.targetLanguage;
   promptInput.value = settings.prompt || "";
+  renderServiceFields();
   renderKeyStatus();
 }
 
@@ -271,7 +290,7 @@ function validationError(error) {
   else if (/认证方式/.test(message) && !customAuthentication.hidden) authTypeInput.focus();
   else if (/invalid url|endpoint|https|接口/i.test(message)) endpointInput.focus();
   else if (/api.?key/i.test(message)) apiKeyInput.focus();
-  else if (/model|模型/i.test(message)) modelInput.focus();
+  else if (/model|模型|部署名称/i.test(message)) modelInput.focus();
   return message;
 }
 
@@ -355,6 +374,7 @@ providerList.addEventListener("change", (event) => {
   authTypeInput.value = DEFAULT_AUTH_TYPE;
   apiKeyInput.value = "";
   previousProvider = event.target.value;
+  renderServiceFields();
   renderKeyStatus();
   status.hidden = true;
 });

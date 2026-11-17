@@ -766,7 +766,57 @@ try {
   await pageStatus.getByText('网页正文已变动，请重新启动翻译。').waitFor({ timeout: 6000 });
   assert.equal(requests.length, beforeChangedViewport, '正文原位变动后不得发送已经过期的段落');
 
-  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、取消旧结果、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译和网页重点总结');
+  const azureResource = 'https://unit-resource.openai.azure.com';
+  const azureEndpoint = azureResource + '/openai/v1/chat/completions';
+  await options.evaluate((expectedEndpoint) => {
+    // This is a placeholder account. Intercept every call from the options page.
+    globalThis.__azureRequests = [];
+    globalThis.fetch = async (url, init) => {
+      if (url !== expectedEndpoint) throw new Error('Unexpected test service endpoint');
+      globalThis.__azureRequests.push({ url, method: init.method, headers: init.headers, body: JSON.parse(init.body) });
+      return Response.json({ choices: [{ message: { content: 'Azure 示例译文' } }] });
+    };
+  }, azureEndpoint);
+  await options.locator('#new-profile').click();
+  await options.locator('#profile-name').fill('Azure 模拟配置');
+  await options.getByRole('radio', { name: 'Azure OpenAI' }).check();
+  assert.equal(await options.getByLabel('Azure 资源地址', { exact: false }).inputValue(), '');
+  await options.getByLabel('Azure 资源地址', { exact: false }).fill(azureResource);
+  await options.getByLabel('部署名称', { exact: false }).fill('unit-test-deployment');
+  await options.getByLabel('Azure 资源 API Key', { exact: false }).fill('azure-fixture-key');
+  assert.equal(await options.locator('#auth-type').isVisible(), false);
+  await options.locator('#test-connection').click();
+  await options.locator('#form-status[data-tone="success"]').filter({ hasText: /Azure 示例译文.*尚未保存/ }).waitFor();
+  const [azureRequest] = await options.evaluate(() => globalThis.__azureRequests);
+  assert.equal(azureRequest.url, azureEndpoint);
+  assert.equal(azureRequest.method, 'POST');
+  assert.deepEqual(azureRequest.headers, { 'Content-Type': 'application/json', 'api-key': 'azure-fixture-key' });
+  assert.equal(azureRequest.body.model, 'unit-test-deployment');
+  assert.equal(azureRequest.body.messages.at(-1).content, 'Hello, world.');
+  assert.equal(azureRequest.body.stream, false);
+  assert.deepEqual(
+    await options.evaluate(() => globalThis.__permissionRequests.at(-1).origins),
+    [azureResource + '/*'],
+  );
+  await saveTested.click();
+  await options.locator('#form-status[data-tone="success"]').filter({ hasText: '配置已保存' }).waitFor();
+  assert.equal(await options.locator('#endpoint').inputValue(), azureEndpoint);
+  assert.equal(await options.locator('#api-key').inputValue(), '');
+  await options.locator('#endpoint').fill(azureResource + '/openai/v1/');
+  assert.match(await options.locator('#key-status').textContent(), /留空即可沿用/);
+  await options.locator('#endpoint').fill('https://different-resource.openai.azure.com');
+  assert.match(await options.locator('#key-status').textContent(), /请填写新的 API Key/);
+  await options.locator('#activate-profile').click();
+  await options.locator('#form-status[data-tone="success"]').filter({ hasText: '已切换当前 AI 配置' }).waitFor();
+  const activated = await options.evaluate(async () => {
+    const { settings } = await chrome.storage.local.get('settings');
+    return { provider: settings.provider, endpoint: settings.endpoint, authType: settings.authType, model: settings.model };
+  });
+  assert.deepEqual(activated, {
+    provider: 'azure-openai', endpoint: azureEndpoint, authType: 'api-key', model: 'unit-test-deployment',
+  });
+
+  console.log('PASS: 连接检测、模拟授权与保存、Azure OpenAI 预设、侧栏译文、取消旧结果、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译和网页重点总结');
   console.log('Mock POST requests: ' + requests.map((item) => item.text).join(', '));
 } finally {
   releaseSlowResponse?.();

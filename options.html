@@ -48,13 +48,13 @@
             </section>
             <section class="form-section" aria-labelledby="provider-heading">
               <div class="section-heading"><span class="section-number">01</span><h3 id="provider-heading">选择服务</h3><span class="heading-rule"></span></div>
-              <p class="section-help">预设会填写接口地址。你仍可修改地址，或选择自定义 OpenAI 兼容接口。</p>
+              <p class="section-help">选择 AI 服务，也可填写自定义 OpenAI 兼容接口。</p>
               <div id="provider-list" class="provider-grid" role="radiogroup" aria-label="AI 服务"></div>
             </section>
 
             <section class="form-section" aria-labelledby="connection-heading">
               <div class="section-heading"><span class="section-number">02</span><h3 id="connection-heading">连接信息</h3><span class="heading-rule"></span></div>
-              <div class="field"><label for="endpoint">接口地址 <span class="required">*</span></label><input id="endpoint" name="endpoint" type="url" inputmode="url" autocomplete="url" placeholder="https://example.com/v1/chat/completions" required /><small id="endpoint-help">填写完整的 Chat Completions 接口地址。仅本机服务可使用 HTTP。</small></div>
+              <div class="field"><label for="endpoint"><span id="endpoint-label">接口地址</span> <span class="required">*</span></label><input id="endpoint" name="endpoint" type="url" inputmode="url" autocomplete="url" aria-describedby="endpoint-help" placeholder="https://example.com/v1/chat/completions" required /><small id="endpoint-help">填写完整的 Chat Completions 接口地址。仅本机服务可使用 HTTP。</small></div>
               <div class="field" id="custom-authentication" hidden>
                 <label for="auth-type">认证方式</label>
                 <div class="select-wrap">
@@ -69,8 +69,8 @@
                 <small>无需密钥仅适用于 localhost 和 127.0.0.1。</small>
               </div>
               <div class="field-row">
-                <div class="field" id="api-key-field"><label for="api-key">API Key <span class="required">*</span></label><input id="api-key" name="apiKey" type="password" autocomplete="off" spellcheck="false" aria-describedby="key-status" placeholder="填写新的 API Key" /><small id="key-status">正在读取已保存配置…</small></div>
-                <div class="field"><label for="model">模型 ID <span class="required">*</span></label><input id="model" name="model" type="text" autocomplete="off" spellcheck="false" placeholder="填写服务支持的模型 ID" required /></div>
+                <div class="field" id="api-key-field"><label for="api-key"><span id="api-key-label">API Key</span> <span class="required">*</span></label><input id="api-key" name="apiKey" type="password" autocomplete="off" spellcheck="false" aria-describedby="key-status" placeholder="填写新的 API Key" /><small id="key-status">正在读取已保存配置…</small></div>
+                <div class="field"><label for="model"><span id="model-label">模型 ID</span> <span class="required">*</span></label><input id="model" name="model" type="text" autocomplete="off" spellcheck="false" placeholder="填写服务支持的模型 ID" aria-describedby="model-help" required /><small id="model-help" hidden>填写 Azure 门户中该模型的部署名称。</small></div>
               </div>
             </section>
 
