@@ -322,7 +322,9 @@ try {
 
   await options.locator('#test-connection').click();
   await options.locator('#form-status[data-tone="success"]').waitFor();
-  assert.match(await options.locator('#form-status').textContent(), /连接正常/);
+  assert.match(await options.locator('#form-status').textContent(), /连接正常.*尚未保存/);
+  const saveTested = options.getByRole('button', { name: '保存已测试配置' });
+  await saveTested.waitFor();
   assert.equal(
     await options.evaluate(async () => (await chrome.storage.local.get('settings')).settings),
     undefined,
@@ -336,7 +338,7 @@ try {
   assert.equal(requests[0].model, 'local-mock-model');
 
   await options.evaluate(() => { globalThis.__permissionGrant = false; });
-  await options.locator('#save-settings').click();
+  await saveTested.click();
   await options.locator('#form-status[data-tone="error"]').waitFor();
   assert.match(await options.locator('#form-status').textContent(), /未获得该服务的访问权限/);
   assert.equal(
@@ -358,6 +360,13 @@ try {
     ['http://127.0.0.1/*'],
     ['http://127.0.0.1/*'],
   ]);
+
+  await options.locator('#test-connection').click();
+  await options.locator('#form-status').filter({ hasText: /连接正常.*当前配置已保存/ }).waitFor();
+  assert.equal(await saveTested.isVisible(), false);
+  await options.locator('#model').fill('different-draft');
+  assert.equal(await options.locator('#form-status').isVisible(), false, '编辑表单后应清除之前的检测结果');
+  await options.locator('#model').fill(saved.model);
 
   const panel = await context.newPage();
   const panelUrl = 'chrome-extension://' + extensionId + '/sidepanel.html';

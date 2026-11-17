@@ -56,7 +56,10 @@
             </section>
 
             <div class="notice"><span class="notice-icon" aria-hidden="true">✳</span><p><strong>关于你的数据</strong><br />API Key 保存在此浏览器的扩展本地存储中；翻译文本会发送给你选择的 AI 服务。测试连接会发送一小段示例文字。</p></div>
-            <div id="form-status" class="form-status" role="status" aria-live="polite" hidden></div>
+            <div id="form-status" class="form-status" hidden>
+              <div id="form-status-message" role="status" aria-live="polite"></div>
+              <button class="tested-save" id="save-tested-settings" type="submit" hidden>保存已测试配置</button>
+            </div>
             <div class="form-actions"><button class="test-button" id="test-connection" type="button"><span aria-hidden="true">↗</span><span class="test-label">测试连接</span></button><button class="save-button" id="save-settings" type="submit"><span>保存配置</span><span aria-hidden="true">→</span></button></div>
 
             <section class="management-section" aria-labelledby="management-heading">

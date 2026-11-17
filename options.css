@@ -24,6 +24,18 @@ button,input,textarea,select{font:inherit}button{cursor:pointer}button:disabled{
 .select-wrap{position:relative}.select-wrap select{appearance:none;cursor:pointer}.select-wrap>span{position:absolute;right:12px;top:6px;color:var(--accent-dark);font-family:Georgia,serif;font-size:23px;pointer-events:none}
 .notice{display:flex;align-items:flex-start;gap:11px;margin:7px 0 17px;padding:13px 14px;border:1px solid #e6ddc9;border-radius:8px;background:#f8f3e7}.notice-icon{color:var(--accent-dark);font-size:18px;line-height:1}.notice p{margin:0;color:#746f61;font-size:10px;line-height:1.8}.notice strong{color:#47483f;font-size:11px}
 .form-status{margin:0 0 13px;padding:11px 13px;border-radius:7px;font-size:11px;line-height:1.6}.form-status[data-tone="success"]{border:1px solid #bfd0b2;background:#eaf1e4;color:#44603d}.form-status[data-tone="error"]{border:1px solid #eac1b4;background:#fff0e9;color:#933e29}.form-status[data-tone="working"]{border:1px solid #d8d7c8;background:#f7f5eb;color:#626659}
+.tested-save {
+  margin-top: 7px;
+  padding: 5px 9px;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: 750;
+}
+.tested-save:hover:not(:disabled) { background: #dce7d3; }
+.tested-save:disabled { opacity: .55; }
 .form-actions{display:flex;justify-content:flex-end;gap:10px}.form-actions button{height:42px;border-radius:7px;font-size:11px;font-weight:750;transition:transform .2s,background .2s,box-shadow .2s}.form-actions button:not(:disabled):hover{transform:translateY(-2px)}.test-button{padding:0 14px;border:1px solid #cfcbbb;background:transparent;color:var(--ink)}.test-button:hover{background:var(--sheet)}.test-button span{font-family:Georgia,serif;font-size:17px;vertical-align:-1px;margin-right:4px}.save-button{display:flex;align-items:center;justify-content:space-between;gap:36px;min-width:145px;padding:0 14px;border:1px solid var(--ink);background:var(--ink);color:var(--sheet)}.save-button:hover{background:#343a31;box-shadow:0 7px 15px rgba(32,35,31,.13)}.save-button span:last-child{font-family:Georgia,serif;font-size:20px;font-weight:400}.form-actions button:disabled{opacity:.55}
 .test-button .test-label{font-family:inherit;font-size:11px;vertical-align:baseline;margin-right:0}
 .test-button[data-testing="true"]{border-color:var(--accent);color:var(--accent-dark);background:#fff6ef}
