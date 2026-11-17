@@ -5,6 +5,7 @@ import { compareSelections, selectionStorageKey, selectionStoragePrefix, selecti
 import { createHistoryPanel } from "./lib/history-panel.js";
 import { HISTORY_KEY, recordTranslation } from "./lib/translation-history.js";
 import { translate } from "./lib/translator.js";
+import { createLocalPdfPanel } from "./lib/local-pdf-panel.js";
 
 const MAX_TEXT_LENGTH = 5000;
 const TRANSLATION_SETTING_KEYS = ["provider", "endpoint", "apiKey", "model", "targetLanguage", "prompt"];
@@ -443,6 +444,11 @@ for (const { id, name } of TARGET_LANGUAGES) {
   targetOptions.append(option);
 }
 
+createLocalPdfPanel(document, (snippet) => {
+  elements.input.value = snippet;
+  elements.input.dispatchEvent(new Event("input"));
+  elements.input.focus();
+});
 showResult("empty");
 updateControls();
 initialize();
