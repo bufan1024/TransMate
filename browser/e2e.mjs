@@ -8,6 +8,22 @@ import { chromium } from 'playwright';
 
 const extensionDir = fileURLToPath(new URL('../', import.meta.url));
 const chromiumExecutable = process.env.TRANSMATE_CHROMIUM_EXECUTABLE;
+const captionVideo = await readFile(new URL('./fixtures/captions.webm', import.meta.url));
+const captionFixture = `<!doctype html><meta charset="utf-8">
+<video id="fixture-video" src="/caption-video.webm" width="600" height="338" preload="auto" controls muted>
+  <track kind="subtitles" src="/caption-fixture.vtt" srclang="en" label="English">
+</video>`;
+const fixtureVtt = `WEBVTT
+
+00:00.000 --> 00:01.900
+<b>caption opening</b>
+
+00:02.000 --> 00:03.900
+caption delayed
+
+00:04.000 --> 00:05.900
+caption ending
+`;
 const longInlineSource = 'The river carried small branches and leaves past the quiet town after the rain. '.repeat(20).trim();
 const fixturePage = `<!doctype html>
 <html lang="en">
@@ -119,10 +135,34 @@ for (const delayed of languageResponses.values()) {
   delayed.finished = deferred();
 }
 
+const delayedCaption = deferred();
 const server = createServer(async (request, response) => {
   response.setHeader('Access-Control-Allow-Origin', '*');
   response.setHeader('Access-Control-Allow-Headers', 'authorization,content-type');
   response.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  if (request.method === 'GET' && request.url === '/caption-fixture') {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(captionFixture);
+    return;
+  }
+  if (request.method === 'GET' && request.url === '/caption-fixture.vtt') {
+    response.writeHead(200, { 'Content-Type': 'text/vtt; charset=utf-8' }).end(fixtureVtt);
+    return;
+  }
+  if (request.method === 'GET' && request.url === '/caption-video.webm') {
+    const requested = /^bytes=(\d+)-(\d*)$/.exec(request.headers.range || '');
+    const start = requested ? Number(requested[1]) : 0;
+    const end = requested?.[2] ? Math.min(Number(requested[2]), captionVideo.length - 1) : captionVideo.length - 1;
+    if (start > end) {
+      response.writeHead(416, { 'Content-Range': `bytes */${captionVideo.length}` }).end();
+      return;
+    }
+    const headers = {
+      'Content-Type': 'video/webm', 'Content-Length': end - start + 1, 'Accept-Ranges': 'bytes',
+      ...(requested ? { 'Content-Range': `bytes ${start}-${end}/${captionVideo.length}` } : {}),
+    };
+    response.writeHead(requested ? 206 : 200, headers).end(captionVideo.subarray(start, end + 1));
+    return;
+  }
   if (request.method === 'GET' && request.url === '/inline-fixture') {
     response.setHeader('Content-Type', 'text/html; charset=utf-8');
     response.writeHead(200).end(fixturePage);
@@ -188,6 +228,13 @@ const server = createServer(async (request, response) => {
       response.writeHead(200).end(JSON.stringify({ choices: [{ message: { content } }] }));
     }
     delayed?.finished.resolve();
+    return;
+  }
+
+  if (typeof text === 'string' && text.startsWith('caption ')) {
+    if (text === 'caption delayed') await delayedCaption.promise;
+    const content = `${target}:${text}`;
+    if (!response.destroyed) response.writeHead(200).end(JSON.stringify({ choices: [{ message: { content } }] }));
     return;
   }
 
@@ -1003,9 +1050,38 @@ try {
   await pageStatus.getByText('网页正文已变动，请重新启动翻译。').waitFor({ timeout: 6000 });
   assert.equal(requests.length, beforeChangedViewport, '正文原位变动后不得发送已经过期的段落');
 
+  const captionUrl = new URL('/caption-fixture', endpoint).href;
+  await articlePage.goto(captionUrl);
+  const video = articlePage.locator('#fixture-video');
+  await waitUntil(() => video.evaluate((element) => element.readyState >= 2), '浏览器加载视频素材');
+  const seek = (time) => video.evaluate((element, position) => { element.currentTime = position; }, time);
+  await seek(0.3);
+  await triggerContextMenu(worker, articleTab.id, 'translate-video-captions');
+  const captionHost = articlePage.locator('#transmate-video-captions');
+  const caption = captionHost.locator('.caption');
+  await caption.filter({ hasText: saved.targetLanguage + ':caption opening' }).waitFor();
+  await seek(2.3);
+  await waitUntil(() => requests.some(({ text }) => text === 'caption delayed'), '延迟字幕请求已发出');
+  await seek(4.3);
+  await caption.filter({ hasText: saved.targetLanguage + ':caption ending' }).waitFor();
+  delayedCaption.resolve();
+  assert.equal(await caption.textContent(), saved.targetLanguage + ':caption ending', '迟到字幕不得覆盖当前时间点');
+  assert.equal(await captionHost.getByRole('combobox', { name: '字幕目标语言' }).isVisible(), true);
+  await chooseLanguage(captionHost.locator('.target'), 'ja');
+  await caption.filter({ hasText: 'ja:caption ending' }).waitFor();
+  assert.equal(await video.evaluate((element) => element.paused), true, '翻译不得改变播放状态');
+  await captionHost.getByRole('button', { name: '关闭' }).click();
+  await captionHost.waitFor({ state: 'detached' });
+  assert.equal(await video.evaluate((element) => element.textTracks[0].mode), 'disabled');
+  const beforeCaptionSeek = requests.length;
+  await seek(0.4);
+  await articlePage.waitForTimeout(150);
+  assert.equal(requests.length, beforeCaptionSeek, '关闭后拖动播放位置不得发送请求');
+
   console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、临时目标语言、停止翻译、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译和网页重点总结');
   console.log('Mock POST requests: ' + requests.map((item) => item.text).join(', '));
 } finally {
+  delayedCaption.resolve();
   releaseSlowResponse?.();
   delayedPageTranslation?.gate.resolve();
   viewportStreamGate?.resolve();
