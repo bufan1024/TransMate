@@ -42,6 +42,30 @@ test('translate sends a non-streaming Chat Completions request and returns its t
   assert.equal(body.messages[1].content, 'Hello, world!');
 });
 
+test('translate sends only the chosen custom credential header and checks the exact host grant', async () => {
+  for (const [authType, endpoint, origin, authentication] of [
+    ['x-api-key', 'https://example.com/chat', 'https://example.com/*', { 'x-api-key': 'private-key' }],
+    ['api-key', 'https://example.com/chat', 'https://example.com/*', { 'api-key': 'private-key' }],
+    ['none', 'http://127.0.0.1:3981/translate', 'http://127.0.0.1/*', {}],
+  ]) {
+    const granted = [];
+    const result = await translate({
+      text: 'Hello',
+      settings: { ...settings, authType, endpoint },
+      permissionsApi: { contains: async (request) => { granted.push(request); return true; } },
+      fetchImpl: async (url, options) => {
+        assert.equal(url, endpoint);
+        assert.deepEqual(options.headers, { 'Content-Type': 'application/json', ...authentication });
+        assert.equal(options.redirect, 'error');
+        assert.equal(options.credentials, 'omit');
+        return { ok: true, json: async () => ({ choices: [{ message: { content: '译文' } }] }) };
+      },
+    });
+    assert.deepEqual(granted, [{ origins: [origin] }]);
+    assert.equal(result, '译文');
+  }
+});
+
 test('translate rejects empty and overlong text before a network request', async () => {
   let calls = 0;
   const fetchImpl = async () => { calls += 1; throw new Error('should not fetch'); };

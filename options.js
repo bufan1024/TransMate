@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, PROVIDERS, originPatternForEndpoint } from "./lib/config.js";
+import { DEFAULT_AUTH_TYPE, DEFAULT_SETTINGS, PROVIDERS, originPatternForEndpoint } from "./lib/config.js";
 import { checkConnection } from "./lib/connection-check.js";
 import {
   DEFAULT_PROFILE_NAME, SERVICE_PROFILES_KEY, SettingsOperationError, activateServiceProfile,
@@ -14,6 +14,10 @@ const activateProfileButton = document.querySelector("#activate-profile");
 const deleteProfileButton = document.querySelector("#delete-profile");
 const providerList = document.querySelector("#provider-list");
 const endpointInput = document.querySelector("#endpoint");
+const endpointHelp = document.querySelector("#endpoint-help");
+const customAuthentication = document.querySelector("#custom-authentication");
+const authTypeInput = document.querySelector("#auth-type");
+const apiKeyField = document.querySelector("#api-key-field");
 const apiKeyInput = document.querySelector("#api-key");
 const modelInput = document.querySelector("#model");
 const targetInput = document.querySelector("#target-language");
@@ -67,10 +71,13 @@ function setProvider(id) {
 }
 
 function formSettings() {
+  const provider = selectedProvider();
+  const authType = provider === "custom" ? authTypeInput.value : DEFAULT_AUTH_TYPE;
   return {
-    provider: selectedProvider(),
+    provider,
     endpoint: endpointInput.value.trim(),
-    apiKey: apiKeyInput.value.trim(),
+    authType,
+    apiKey: authType === "none" ? "" : apiKeyInput.value.trim(),
     model: modelInput.value.trim(),
     targetLanguage: targetInput.value,
     prompt: promptInput.value.trim(),
@@ -78,9 +85,15 @@ function formSettings() {
 }
 
 function renderKeyStatus() {
-  if (apiKeyInput.value.trim()) keyStatus.textContent = "将使用新填写的密钥；保存后才写入本机。";
-  else if (canReuseSavedKey(formSettings(), savedSettings)) keyStatus.textContent = "此服务已有保存的密钥；留空即可沿用。";
-  else if (savedSettings?.apiKey) keyStatus.textContent = "服务或接口已更改，请填写新的 API Key。";
+  const draft = formSettings();
+  customAuthentication.hidden = draft.provider !== "custom";
+  apiKeyField.hidden = draft.authType === "none";
+  endpointHelp.textContent = customAuthentication.hidden
+    ? "填写完整的 Chat Completions 接口地址。仅本机服务可使用 HTTP。"
+    : "填写服务的完整 Chat Completions 请求地址。自定义接口可使用不同路径。";
+  if (draft.apiKey) keyStatus.textContent = "将使用新填写的密钥；保存后才写入本机。";
+  else if (canReuseSavedKey(draft, savedSettings)) keyStatus.textContent = "此服务已有保存的密钥；留空即可沿用。";
+  else if (savedSettings?.apiKey) keyStatus.textContent = "服务、接口或认证方式已更改，请填写新的 API Key。";
   else keyStatus.textContent = "尚无已保存的密钥，请填写 API Key。";
   clearKeyButton.disabled = operationBusy || !savedSettings?.apiKey;
 }
@@ -88,6 +101,7 @@ function renderKeyStatus() {
 function fillForm(settings) {
   setProvider(settings.provider);
   endpointInput.value = settings.endpoint || "";
+  authTypeInput.value = settings.provider === "custom" ? settings.authType ?? DEFAULT_AUTH_TYPE : DEFAULT_AUTH_TYPE;
   apiKeyInput.value = "";
   modelInput.value = settings.model || "";
   targetInput.value = settings.targetLanguage || DEFAULT_SETTINGS.targetLanguage;
@@ -220,7 +234,8 @@ function showStatus(message, tone, { connectionResult = false, offerSave = false
 }
 
 function matchesConfig(config, candidate) {
-  return Boolean(candidate && Object.entries(config).every(([key, value]) => candidate[key] === value));
+  return Boolean(candidate && (config.authType ?? DEFAULT_AUTH_TYPE) === (candidate.authType ?? DEFAULT_AUTH_TYPE)
+    && Object.entries(config).every(([key, value]) => key === "authType" || candidate[key] === value));
 }
 
 function setBusy(busy, mode = "save") {
@@ -253,6 +268,7 @@ function cancelConnectionCheck(message = "连接检测已取消。") {
 function validationError(error) {
   const message = error?.message || String(error);
   if (/配置名称/.test(message)) profileName.focus();
+  else if (/认证方式/.test(message) && !customAuthentication.hidden) authTypeInput.focus();
   else if (/invalid url|endpoint|https|接口/i.test(message)) endpointInput.focus();
   else if (/api.?key/i.test(message)) apiKeyInput.focus();
   else if (/model|模型/i.test(message)) modelInput.focus();
@@ -267,9 +283,9 @@ function showSettingsFailure(error, fallback) {
   }
 }
 
-function requestEndpointPermission(endpoint) {
+function requestEndpointPermission({ endpoint, provider }) {
   // Call within the click/submit gesture, before any await.
-  return chrome.permissions.request({ origins: [originPatternForEndpoint(endpoint)] });
+  return chrome.permissions.request({ origins: [originPatternForEndpoint(endpoint, provider)] });
 }
 
 function providerById(id) {
@@ -336,6 +352,7 @@ providerList.addEventListener("change", (event) => {
   const oldPreset = providerById(previousProvider)?.endpoint || "";
   const nextPreset = providerById(event.target.value)?.endpoint || "";
   if (!endpointInput.value.trim() || endpointInput.value.trim() === oldPreset) endpointInput.value = nextPreset;
+  authTypeInput.value = DEFAULT_AUTH_TYPE;
   apiKeyInput.value = "";
   previousProvider = event.target.value;
   renderKeyStatus();
@@ -345,6 +362,9 @@ providerList.addEventListener("change", (event) => {
 endpointInput.addEventListener("input", () => {
   apiKeyInput.value = "";
   renderKeyStatus();
+});
+authTypeInput.addEventListener("change", () => {
+  apiKeyInput.value = "";
 });
 
 function onFormChanged(event) {
@@ -371,7 +391,7 @@ form.addEventListener("submit", async (event) => {
   try {
     if (!name || name.length > 48) throw new Error("请输入 1 到 48 个字符的配置名称。");
     config = resolveSettings(draft, savedSettings);
-    permissionPromise = requestEndpointPermission(config.endpoint);
+    permissionPromise = requestEndpointPermission(config);
   } catch (error) {
     showStatus(validationError(error), "error");
     return;
@@ -412,7 +432,7 @@ testButton.addEventListener("click", async () => {
   let permissionPromise;
   try {
     config = resolveSettings(draft, savedSettings);
-    permissionPromise = requestEndpointPermission(config.endpoint);
+    permissionPromise = requestEndpointPermission(config);
   } catch (error) {
     showStatus(validationError(error), "error");
     return;
