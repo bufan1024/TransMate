@@ -90,6 +90,7 @@ function deferred() {
 }
 
 const requests = [];
+const geminiRequests = [];
 let retryAttempts = 0;
 let releaseSlowResponse;
 let finishSlowResponse;
@@ -128,6 +129,45 @@ const server = createServer(async (request, response) => {
     response.writeHead(204).end();
     return;
   }
+  const geminiUrl = new URL(request.url, 'http://127.0.0.1');
+  const geminiOperation = /^\/v1beta\/models\/gemini-fixture:(generateContent|streamGenerateContent)$/.exec(geminiUrl.pathname)?.[1];
+  if (request.method === 'POST' && geminiOperation) {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    const system = body.systemInstruction?.parts?.[0]?.text;
+    const text = body.contents?.[0]?.parts?.[0]?.text;
+    geminiRequests.push({
+      text, system, operation: geminiOperation, query: geminiUrl.search,
+      apiKey: request.headers['x-goog-api-key'], authorization: request.headers.authorization,
+    });
+    const asCandidate = (parts, finishReason) => ({
+      candidates: [{ index: 0, content: { role: 'model', parts }, finishReason }],
+    });
+    if (geminiOperation === 'streamGenerateContent') {
+      const blocks = JSON.parse(text);
+      response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      response.write(`data: ${JSON.stringify(asCandidate([{ text: 'private thought', thought: true }]))}\n\n`);
+      for (const { id } of blocks) {
+        const line = JSON.stringify({ id, text: 'Gemini 网页译文 ' + id }) + '\n';
+        response.write(`data: ${JSON.stringify(asCandidate([{ text: line }]))}\n\n`);
+      }
+      response.end(`data: ${JSON.stringify(asCandidate([], 'STOP'))}\n\n`);
+      return;
+    }
+    const translation = system?.startsWith('Summarize')
+      ? 'Gemini 网页总结'
+      : new Map([
+        ['Hello, world.', 'Gemini 连接成功'],
+        ['gemini panel', 'Gemini 侧栏译文'],
+        ['inline hello', 'Gemini 划词译文'],
+      ]).get(text);
+    const parts = [{ text: 'private thought', thought: true }, { text: translation }];
+    response.writeHead(200, { 'Content-Type': 'application/json' })
+      .end(JSON.stringify(asCandidate(parts, 'STOP')));
+    return;
+  }
+
   if (request.method !== 'POST' || request.url !== '/v1/chat/completions') {
     response.writeHead(404).end();
     return;
@@ -766,7 +806,43 @@ try {
   await pageStatus.getByText('网页正文已变动，请重新启动翻译。').waitFor({ timeout: 6000 });
   assert.equal(requests.length, beforeChangedViewport, '正文原位变动后不得发送已经过期的段落');
 
-  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、取消旧结果、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译和网页重点总结');
+  await options.locator('input[name="provider"][value="gemini"]').check();
+  assert.match(await options.locator('#endpoint-help').textContent(), /Gemini.*API/);
+  await options.locator('#endpoint').fill(new URL('/v1beta', endpoint).href);
+  await options.locator('#api-key').fill('local-gemini-test-key');
+  await options.locator('#model').fill('gemini-fixture');
+  await options.locator('#test-connection').click();
+  await options.getByText(/示例译文：「Gemini 连接成功」/).waitFor({ timeout: 6000 });
+  await options.locator('#save-settings').click();
+  await options.getByText('配置已保存。', { exact: true }).waitFor({ timeout: 6000 });
+
+  await panel.locator('#source-text').fill('gemini panel');
+  await panel.locator('#translate-button').click();
+  await panel.locator('#result-text').filter({ hasText: 'Gemini 侧栏译文' }).waitFor({ timeout: 6000 });
+
+  await inlinePage.bringToFront();
+  const geminiSelection = await selectFixtureText(inlinePage, 'inline-first');
+  await triggerContextMenu(worker, inlineTabId, 'translate-selection', geminiSelection);
+  await inlineHost.locator('.result').filter({ hasText: 'Gemini 划词译文' }).waitFor({ timeout: 6000 });
+
+  await articlePage.goto(articleUrl);
+  await articlePage.bringToFront();
+  await triggerContextMenu(worker, articleTab.id, 'translate-page');
+  await pageStatus.getByRole('button', { name: '移除译文' }).waitFor({ timeout: 6000 });
+  assert.equal(await pageTranslations.count(), articleBlocks.length);
+  assert.match(await pageTranslations.first().textContent(), /^Gemini 网页译文 /);
+  await triggerContextMenu(worker, articleTab.id, 'summarize-page');
+  await panel.locator('#page-summary-text').filter({ hasText: 'Gemini 网页总结' }).waitFor({ timeout: 6000 });
+
+  assert.equal(geminiRequests.length, 5);
+  for (const request of geminiRequests) {
+    assert.equal(request.apiKey, 'local-gemini-test-key');
+    assert.equal(request.authorization, undefined);
+    assert.ok(request.system);
+    assert.equal(request.query, request.operation === 'streamGenerateContent' ? '?alt=sse' : '');
+  }
+
+  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、取消旧结果、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译、网页重点总结和 Gemini 原生接口');
   console.log('Mock POST requests: ' + requests.map((item) => item.text).join(', '));
 } finally {
   releaseSlowResponse?.();
