@@ -1,5 +1,7 @@
 import { message as localize } from './lib/i18n.js';
-import { compareSelections, selectionStorageKey, selectionWindowIdFromKey, shouldAcceptSelection } from './lib/selection.js';
+import {
+  compareSelections, isInjectableUrl, selectionStorageKey, selectionWindowIdFromKey, shouldAcceptSelection,
+} from './lib/selection.js';
 import { createPageActions, PAGE_TRANSLATION_MENU, PAGE_SUMMARY_MENU, PANEL_PAGE_ACTION } from './lib/page-actions.js';
 import { DEFAULT_SETTINGS, TARGET_LANGUAGES } from './lib/config.js';
 import { recordTranslation } from './lib/translation-history.js';
@@ -11,6 +13,7 @@ import {
   PAGE_TRANSLATION_SITES, SITE_MENU_PATTERNS, forgetRevokedTranslationSites, pageTranslationSite, storedSites,
 } from './lib/page-translation-sites.js';
 import { withSettingsLock } from './lib/settings-management.js';
+import { SELECTION_LAUNCHER_ORIGINS, selectionLauncherAllowed, syncSelectionLauncher } from './lib/selection-launcher-settings.js';
 
 const MENU_ID = 'translate-selection';
 const SITE_SETTINGS_MENU = 'page-translation-site-settings';
@@ -21,6 +24,8 @@ const INLINE_RETRY = 'TRANSMATE_INLINE_RETRY';
 const INLINE_SWITCH_LANGUAGE = 'TRANSMATE_INLINE_SWITCH_LANGUAGE';
 const INLINE_OPEN_PANEL = 'TRANSMATE_INLINE_OPEN_PANEL';
 const INLINE_EXPORT_RESULT = 'TRANSMATE_INLINE_EXPORT_RESULT';
+const SELECTION_LAUNCHER_STATUS = 'TRANSMATE_SELECTION_LAUNCHER_STATUS';
+const SELECTION_LAUNCHER_START = 'TRANSMATE_SELECTION_LAUNCHER_START';
 const SHORTCUT_HINT = localize('selectFirst', '请先选中文字，再按快捷键翻译。');
 const locale = localize('locale', 'zh-CN');
 const maxSelectionLength = MAX_LONG_TEXT_LENGTH.toLocaleString(locale);
@@ -78,19 +83,6 @@ function messageTarget(entry) {
   return entry.documentId ? { documentId: entry.documentId } : { frameId: entry.frameId };
 }
 
-function isInjectableUrl(url) {
-  if (!url) return false;
-  try {
-    const parsed = new URL(url);
-    if (!['http:', 'https:'].includes(parsed.protocol)) return false;
-    if (parsed.hostname === 'chromewebstore.google.com') return false;
-    if (parsed.hostname === 'chrome.google.com' && parsed.pathname.startsWith('/webstore')) return false;
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function registerBackground(chromeApi, {
   translateImpl = translate, timeoutMs = INLINE_TIMEOUT_MS, translatePageImpl,
 } = {}) {
@@ -111,7 +103,14 @@ export function registerBackground(chromeApi, {
 
   const videoActions = createVideoActions(chromeApi, { privateStorageReady, isInjectableUrl });
 
+  function reconcileSelectionLauncher(options) {
+    void withSettingsLock(globalThis.navigator?.locks, () => syncSelectionLauncher(chromeApi, options)).catch(() => {});
+  }
+
+  chromeApi.runtime.onStartup?.addListener(() => reconcileSelectionLauncher());
+
   chromeApi.runtime.onInstalled.addListener(() => {
+    reconcileSelectionLauncher();
     chromeApi.contextMenus.create({
       id: MENU_ID,
       title: localize('translateSelectionMenu', '用 TransMate 翻译'),
@@ -351,11 +350,11 @@ export function registerBackground(chromeApi, {
     }
   }
 
-  async function inject(entry, frameId) {
-    const results = await chromeApi.scripting.executeScript({
-      target: { tabId: entry.tabId, frameIds: [frameId] },
-      files: [INLINE_SCRIPT],
-    });
+  async function inject(entry, frameId, documentId) {
+    const target = documentId
+      ? { tabId: entry.tabId, documentIds: [documentId] }
+      : { tabId: entry.tabId, frameIds: [frameId] };
+    const results = await chromeApi.scripting.executeScript({ target, files: [INLINE_SCRIPT] });
     const frame = results?.[0];
     if (!frame) throw new Error(localize('cannotInjectCard', '无法注入翻译浮层'));
     entry.frameId = Number.isInteger(frame.frameId) ? frame.frameId : frameId;
@@ -377,13 +376,13 @@ export function registerBackground(chromeApi, {
       if (!await privateStorageReady) throw new Error(localize('privateSettingsUnavailable', '无法保护本机配置'));
       if (!current(entry) || !intentCurrent(tabId, order)) return;
       try {
-        await inject(entry, entry.frameId);
+        await inject(entry, entry.frameId, documentId);
       } catch (error) {
-        if (entry.frameId === 0) throw error;
+        if (documentId || entry.frameId === 0) throw error;
         await inject(entry, 0);
       }
       if (!current(entry) || !intentCurrent(tabId, order)) return;
-      if (documentId && entry.documentId && entry.documentId !== documentId) {
+      if (documentId && entry.documentId !== documentId) {
         cancel(entry, { hide: true });
         return;
       }
@@ -404,8 +403,32 @@ export function registerBackground(chromeApi, {
     } catch {
       if (!current(entry)) return;
       cancel(entry, { hide: true });
-      fallbackToPanel(text, windowId);
+      if (!documentId || entry.documentId === documentId) fallbackToPanel(text, windowId);
     }
+  }
+
+  function launcherSender(sender) {
+    return sender?.id === chromeApi.runtime.id && Number.isInteger(sender.tab?.id)
+      && Number.isInteger(sender.frameId) && typeof sender.documentId === 'string' && sender.documentId
+      && (!sender.documentLifecycle || sender.documentLifecycle === 'active')
+      && isInjectableUrl(sender.url);
+  }
+
+  async function handleSelectionLauncher(message, sender) {
+    if (message.type === SELECTION_LAUNCHER_STATUS) {
+      const enabled = Boolean(launcherSender(sender) && await privateStorageReady && await selectionLauncherAllowed(chromeApi));
+      return { enabled, maxTextLength: MAX_LONG_TEXT_LENGTH };
+    }
+
+    if (!launcherSender(sender) || typeof message.text !== 'string') return { ok: false };
+    const text = message.text.trim().slice(0, MAX_LONG_TEXT_LENGTH + 1);
+    if (!text) return { ok: false };
+    const order = nextInlineOrder();
+    const { tab, frameId, documentId } = sender;
+    if (!await privateStorageReady || !await selectionLauncherAllowed(chromeApi)
+        || !claimIntent(tab.id, order)) return { ok: false };
+    void startInline({ text, frameId, documentId }, tab, order);
+    return { ok: true };
   }
 
   async function onClicked(info, tab) {
@@ -582,6 +605,9 @@ export function registerBackground(chromeApi, {
 
   async function onMessage(message, sender) {
     if (!message || typeof message !== 'object') return;
+    if (message.type === SELECTION_LAUNCHER_STATUS || message.type === SELECTION_LAUNCHER_START) {
+      return handleSelectionLauncher(message, sender);
+    }
     if (message.type === VIDEO_CUE || message.type === VIDEO_STOP) return videoActions.handle(message, sender);
     if (message.type === INLINE_OPEN_PANEL) return openInlinePanel(message, sender);
     if (message.type === PANEL_PAGE_ACTION) return handlePanelPageAction(message, sender);
@@ -620,7 +646,8 @@ export function registerBackground(chromeApi, {
   });
   chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === INLINE_SWITCH_LANGUAGE || message?.type === INLINE_RETRY
-        || message?.type === INLINE_OPEN_PANEL) {
+        || message?.type === INLINE_OPEN_PANEL || message?.type === SELECTION_LAUNCHER_STATUS
+        || message?.type === SELECTION_LAUNCHER_START) {
       void onMessage(message, sender).then(sendResponse, () => sendResponse?.({ ok: false }));
       return true;
     }
@@ -660,7 +687,10 @@ export function registerBackground(chromeApi, {
     }
   });
 
-  chromeApi.permissions.onRemoved?.addListener(() => {
+  chromeApi.permissions.onRemoved?.addListener(({ origins = [] } = {}) => {
+    if (origins.some((origin) => SELECTION_LAUNCHER_ORIGINS.includes(origin))) {
+      reconcileSelectionLauncher({ updateOpenTabs: true });
+    }
     void withSettingsLock(globalThis.navigator?.locks, () =>
       forgetRevokedTranslationSites(chromeApi.storage.local, chromeApi.permissions)).catch(() => {});
   });

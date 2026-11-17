@@ -9,6 +9,7 @@ import { pdfSnippet, scannedPdf, textualPdf } from './fixtures/local-pdf.mjs';
 
 const extensionDir = fileURLToPath(new URL('../', import.meta.url));
 const chromiumExecutable = process.env.TRANSMATE_CHROMIUM_EXECUTABLE;
+const launcherOrigins = ['https://*/*', 'http://*/*'];
 const captionVideo = await readFile(new URL('./fixtures/captions.webm', import.meta.url));
 const captionFixture = `<!doctype html><meta charset="utf-8">
 <video id="fixture-video" src="/caption-video.webm" width="600" height="338" preload="auto" controls muted>
@@ -56,6 +57,18 @@ const frameFixturePage = `<!doctype html>
 <html lang="en">
 <meta charset="utf-8">
 <p id="shortcut-frame-text">shortcut frame</p>
+</html>`;
+const launcherText = 'Selection launcher test phrase';
+const launcherFixturePage = `<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>TransMate selection launcher fixture</title>
+<style>
+  body { margin: 48px; font: 20px sans-serif; }
+  #launcher-clear { min-height: 120px; }
+</style>
+<p id="launcher-text">${launcherText}</p>
+<div id="launcher-clear"></div>
 </html>`;
 const articleFixturePage = `<!doctype html>
 <html lang="en">
@@ -195,6 +208,10 @@ const server = createServer(async (request, response) => {
     response.writeHead(200).end(frameFixturePage);
     return;
   }
+  if (request.method === 'GET' && request.url === '/selection-launcher-fixture') {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(launcherFixturePage);
+    return;
+  }
   if (request.method === 'GET' && request.url === '/article-fixture') {
     response.setHeader('Content-Type', 'text/html; charset=utf-8');
     response.writeHead(200).end(articleFixturePage);
@@ -261,7 +278,7 @@ const server = createServer(async (request, response) => {
   const instruction = body.messages.find((message) => message.role === 'system')?.content || '';
   const text = body.messages.find((message) => message.role === 'user')?.content;
   const target = instruction.match(/^Translate the user's text into (.+?)\. Preserve/)?.[1];
-  requests.push({ text, target, instruction, model: body.model, stream: body.stream });
+  requests.push({ text, target, instruction, model: body.model, stream: body.stream, authorization: request.headers.authorization });
   response.setHeader('Content-Type', 'application/json');
 
   const pageTranslation = instruction.startsWith('Translate the following webpage text blocks into ');
@@ -349,6 +366,7 @@ const server = createServer(async (request, response) => {
     'retry me': '重试成功',
     'window A selection': '窗口 A 译文',
     'window B selection': '窗口 B 译文',
+    [launcherText]: '划词图标译文',
     'inline hello': '页内译文',
     'inline slow': '过期页内译文',
     'inline latest': '最新页内译文',
@@ -418,6 +436,20 @@ async function selectFixtureText(page, elementId) {
   }, elementId);
 }
 
+async function dragLauncherSelection(page) {
+  const { left, right, y } = await page.locator('#launcher-text').evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const rect = range.getBoundingClientRect();
+    return { left: rect.left - 2, right: rect.right + 2, y: (rect.top + rect.bottom) / 2 };
+  });
+  await page.mouse.move(left, y);
+  await page.mouse.down();
+  await page.mouse.move(right, y, { steps: 8 });
+  await page.mouse.up();
+  assert.equal(await page.evaluate(() => window.getSelection()?.toString()), launcherText);
+}
+
 async function triggerContextMenu(worker, tabId, menuItemId, selectionText) {
   return worker.evaluate(async ({ tabId: selectedTabId, menuItemId, selectionText }) => {
     const backgroundRouter = globalThis.__transmateTestRouter;
@@ -470,6 +502,15 @@ await writeFile(testBackgroundPath,
 globalThis.__transmateTestSidePanelOpens = 0;
 chrome.sidePanel.open = async () => {
   globalThis.__transmateTestSidePanelOpens += 1;
+};
+// Optional grant confirmation is simulated without giving the test extension
+// broad network access. Its required loopback permission enables real injection.
+const realContains = chrome.permissions.contains.bind(chrome.permissions);
+chrome.permissions.contains = (details) => {
+  const launcherOrigins = ${JSON.stringify(launcherOrigins)};
+  if (details.origins?.length === launcherOrigins.length
+      && launcherOrigins.every((origin) => details.origins.includes(origin))) return Promise.resolve(true);
+  return realContains(details);
 };
 `);
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -559,6 +600,75 @@ try {
   await options.locator('#model').fill('different-draft');
   assert.equal(await options.locator('#form-status').isVisible(), false, '编辑表单后应清除之前的检测结果');
   await options.locator('#model').fill(saved.model);
+
+  const launcherPage = await context.newPage();
+  await launcherPage.goto(new URL('/selection-launcher-fixture', endpoint).href);
+  const launcherHost = launcherPage.locator('#transmate-selection-launcher');
+  const launcherButton = launcherHost.getByRole('button', { name: '用 TransMate 翻译' });
+  const launcherToggle = options.locator('#selection-launcher-enabled');
+  const requestCountBeforeLauncher = requests.length;
+  const registeredLauncher = () => worker.evaluate(() =>
+    chrome.scripting.getRegisteredContentScripts({ ids: ['selection-launcher'] }));
+
+  assert.equal(await launcherToggle.isChecked(), false, '划词图标默认关闭');
+  assert.deepEqual(await registeredLauncher(), []);
+  await dragLauncherSelection(launcherPage);
+  await launcherPage.waitForTimeout(150);
+  assert.equal(await launcherHost.isVisible(), false);
+
+  await options.evaluate(() => { globalThis.__permissionGrant = false; });
+  await launcherToggle.click();
+  await options.locator('#selection-launcher-status[data-tone="error"]').waitFor();
+  assert.equal(await launcherToggle.isChecked(), false, '拒绝授权后图标保持关闭');
+  assert.deepEqual(await registeredLauncher(), []);
+  await options.evaluate(() => { globalThis.__permissionGrant = true; });
+  await launcherToggle.click();
+  await options.locator('#selection-launcher-status[data-tone="success"]').waitFor();
+  assert.equal(await launcherToggle.isChecked(), true);
+  assert.deepEqual(await options.evaluate(() => globalThis.__permissionRequests.at(-1).origins), launcherOrigins);
+  const [launcherRegistration] = await registeredLauncher();
+  assert.deepEqual(launcherRegistration?.js, ['selection-launcher.js']);
+  assert.deepEqual(new Set(launcherRegistration?.matches), new Set(launcherOrigins));
+
+  await launcherPage.bringToFront();
+  await launcherPage.locator('#launcher-clear').click();
+  await dragLauncherSelection(launcherPage);
+  await launcherButton.waitFor({ state: 'visible' });
+  assert.equal(requests.length, requestCountBeforeLauncher, '只选中文字不能发送翻译请求');
+  await launcherButton.evaluate((button) => button.click());
+  await launcherPage.waitForTimeout(150);
+  assert.equal(requests.length, requestCountBeforeLauncher, '网页脚本不能代替用户点击发送翻译请求');
+  await launcherPage.locator('#launcher-clear').click();
+  await launcherButton.waitFor({ state: 'hidden' });
+  await dragLauncherSelection(launcherPage);
+  await launcherButton.click();
+  await launcherButton.waitFor({ state: 'hidden' });
+
+  const launcherCard = launcherPage.locator('#transmate-inline-host');
+  await launcherCard.locator('.result').filter({ hasText: '划词图标译文' }).waitFor();
+  assert.equal(await launcherCard.locator('.source').textContent(), launcherText);
+  assert.equal(await launcherCard.locator('.target-select').inputValue(), saved.targetLanguage);
+  const launcherRequests = requests.slice(requestCountBeforeLauncher).map(({ text, model, target, authorization }) => ({
+    text, model, target, authorization,
+  }));
+  assert.deepEqual(launcherRequests, [{
+    text: launcherText, model: saved.model, target: saved.targetLanguage, authorization: 'Bearer local-test-key',
+  }]);
+
+  await launcherPage.reload();
+  await dragLauncherSelection(launcherPage);
+  await launcherButton.waitFor({ state: 'visible' });
+  await launcherToggle.click();
+  await waitUntil(async () => (await registeredLauncher()).length === 0, '关闭后注销划词图标脚本');
+  assert.equal(await launcherToggle.isChecked(), false);
+  await launcherPage.bringToFront();
+  await launcherPage.locator('#launcher-clear').click();
+  await dragLauncherSelection(launcherPage);
+  await launcherPage.waitForTimeout(150);
+  assert.equal(await launcherHost.isVisible(), false, '关闭后已打开页面也不再显示划词图标');
+  assert.equal(requests.length, requestCountBeforeLauncher + 1);
+  assert.deepEqual(await options.evaluate(async () => (await chrome.storage.local.get('settings')).settings), saved);
+  await launcherPage.close();
 
   const panel = await context.newPage();
   const panelUrl = 'chrome-extension://' + extensionId + '/sidepanel.html';
@@ -1799,7 +1909,7 @@ try {
     await englishContext.close();
   }
 
-  console.log('PASS: 设置与授权、侧栏与划词操作、长文与流式翻译、整页翻译与总结、自动翻译、字幕、PDF、术语库、Gemini、Azure OpenAI 和英文界面');
+  console.log('PASS: 设置与授权、侧栏、划词图标和划词操作、长文与流式翻译、整页翻译与总结、自动翻译、字幕、PDF、术语库、Gemini、Azure OpenAI 和英文界面');
   console.log('Mock POST requests: ' + requests.map(({ text }) => text.length > 300 ? text.slice(0, 80) + '…' : text).join(', '));
 } finally {
   delayedCaption.resolve();

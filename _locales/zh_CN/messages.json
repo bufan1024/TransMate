@@ -1723,5 +1723,32 @@
   },
   "enableSiteAutoTranslationError": {
     "message": "无法启用站点自动翻译，请检查 Chrome 的站点权限后重试。"
+  },
+  "selectionLauncherButton": {
+    "message": "用 TransMate 翻译"
+  },
+  "selectionLauncherTitle": {
+    "message": "划词翻译图标"
+  },
+  "selectionLauncherHelp": {
+    "message": "启用后，Chrome 会请求访问普通 HTTP 和 HTTPS 网页的权限，用于在选区旁显示图标。点击图标后才会把选中的文字发送给当前 AI 服务。"
+  },
+  "selectionLauncherEnable": {
+    "message": "显示划词翻译图标"
+  },
+  "selectionLauncherReadError": {
+    "message": "无法读取划词图标设置，请重新打开设置页。"
+  },
+  "selectionLauncherDenied": {
+    "message": "Chrome 未授予网页访问权限，划词图标未启用。"
+  },
+  "selectionLauncherOn": {
+    "message": "已启用。选中文字后，点击旁边的 TransMate 图标即可翻译。"
+  },
+  "selectionLauncherOff": {
+    "message": "已关闭划词图标。网页访问权限可在已授权的域名列表中管理。"
+  },
+  "selectionLauncherSaveError": {
+    "message": "无法更新划词图标设置，请检查 Chrome 的网页访问权限后重试。"
   }
 }

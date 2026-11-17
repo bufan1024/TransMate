@@ -1723,5 +1723,32 @@
   },
   "enableSiteAutoTranslationError": {
     "message": "Could not enable auto-translation. Check the site’s Chrome permissions and try again."
+  },
+  "selectionLauncherButton": {
+    "message": "Translate with TransMate"
+  },
+  "selectionLauncherTitle": {
+    "message": "Selection translation icon"
+  },
+  "selectionLauncherHelp": {
+    "message": "Chrome asks for access to regular HTTP and HTTPS webpages to show the icon next to a selection. The selected text is sent to your active AI service when you click the icon."
+  },
+  "selectionLauncherEnable": {
+    "message": "Show selection translation icon"
+  },
+  "selectionLauncherReadError": {
+    "message": "Could not read the selection icon setting. Reopen Settings and try again."
+  },
+  "selectionLauncherDenied": {
+    "message": "Chrome did not grant site access. The selection icon is off."
+  },
+  "selectionLauncherOn": {
+    "message": "Enabled. Select text and click the TransMate icon next to it to translate."
+  },
+  "selectionLauncherOff": {
+    "message": "Selection icon turned off. You can manage site access in the authorized domains list."
+  },
+  "selectionLauncherSaveError": {
+    "message": "Could not update the selection icon. Check Chrome site access and try again."
   }
 }
