@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light" />
-    <title>TransMate · 翻译</title>
+    <title data-i18n="panelTitle">TransMate · 翻译</title>
     <link rel="stylesheet" href="./sidepanel.css" />
     <script type="module" src="./sidepanel.js"></script>
   </head>
@@ -15,105 +15,123 @@
           <span class="brand-mark" aria-hidden="true">T<span>译</span></span>
           <span class="brand-word">Trans<span>Mate</span></span>
         </div>
-        <button class="icon-button" id="open-settings" type="button" title="打开设置" aria-label="打开设置">
+        <button class="icon-button" id="open-settings" type="button" title="打开设置" data-i18n-title="openSettingsIcon" aria-label="打开设置" data-i18n-aria-label="openSettingsIcon">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M12 3.5v2m0 13v2m8.5-8.5h-2m-13 0h-2m14.51-6.01-1.42 1.42M7.41 16.59l-1.42 1.42m12.02 0-1.42-1.42M7.41 7.41 5.99 5.99" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="4.25" stroke="currentColor" stroke-width="1.6"/></svg>
         </button>
       </header>
 
       <main>
-        <section class="page-tools" aria-label="当前网页">
+        <section class="page-tools" aria-label="当前网页" data-i18n-aria-label="currentPage">
           <div class="page-tools-buttons">
-            <button class="secondary-button" id="translate-current-page" type="button">翻译本页</button>
-            <button class="secondary-button" id="summarize-current-page" type="button">总结本页</button>
+            <button class="secondary-button" id="translate-current-page" type="button" data-i18n="translateCurrentPage">翻译本页</button>
+            <button class="secondary-button" id="summarize-current-page" type="button" data-i18n="summarizeCurrentPage">总结本页</button>
           </div>
           <p class="page-action-status" id="page-action-status" role="status"></p>
         </section>
 
         <div class="connection-banner" id="connection-banner" hidden>
           <span class="banner-symbol" aria-hidden="true">!</span>
-          <span id="connection-message">先配置 AI 服务，即可开始翻译。</span>
-          <button id="banner-settings" type="button">去设置 <span aria-hidden="true">↗</span></button>
+          <span id="connection-message" data-i18n="configureFirstBanner">先配置 AI 服务，即可开始翻译。</span>
+          <button id="banner-settings" type="button"><span data-i18n="openSettings">去设置</span> <span aria-hidden="true">↗</span></button>
         </div>
 
         <section class="page-summary" id="page-summary" aria-labelledby="page-summary-title" aria-describedby="page-summary-source" hidden>
-          <h2 id="page-summary-title">网页重点</h2>
+          <h2 id="page-summary-title" data-i18n="pageHighlights">网页重点</h2>
           <p class="page-summary-source" id="page-summary-source"></p>
           <div aria-live="polite">
             <p class="page-summary-status" id="page-summary-status"></p>
             <p class="result-text" id="page-summary-text" hidden></p>
           </div>
           <div class="result-actions">
-            <button class="secondary-button" id="page-summary-cancel" type="button" hidden>取消总结</button>
-            <button class="secondary-button" id="page-summary-retry" type="button" hidden>重试总结</button>
-            <button class="secondary-button" id="page-summary-copy" type="button" hidden>复制总结</button>
+            <button class="secondary-button" id="page-summary-cancel" type="button" hidden data-i18n="cancelSummary">取消总结</button>
+            <button class="secondary-button" id="page-summary-retry" type="button" hidden data-i18n="retryPageSummary">重试总结</button>
+            <button class="secondary-button" id="page-summary-copy" type="button" hidden data-i18n="copySummary">复制总结</button>
           </div>
         </section>
 
         <details class="local-pdf">
-          <summary>翻译本地 PDF</summary>
-          <p class="pdf-help">先在本机读取文字。选中文本并点击「使用选中文本」后，可在下方确认翻译。PDF 扫描件需要 OCR。</p>
-          <label class="sr-only" for="pdf-file">选择本地 PDF</label>
+          <summary data-i18n="localPdf">翻译本地 PDF</summary>
+          <p class="pdf-help" data-i18n="localPdfHelp">先在本机读取文字。选中文本并点击「使用选中文本」后，可在下方确认翻译。PDF 扫描件需要 OCR。</p>
+          <label class="sr-only" for="pdf-file" data-i18n="chooseLocalPdf">选择本地 PDF</label>
           <input id="pdf-file" type="file" accept=".pdf,application/pdf" />
-          <button class="secondary-button" id="pdf-close" type="button" hidden>关闭文档</button>
+          <button class="secondary-button" id="pdf-close" type="button" hidden data-i18n="closePdf">关闭文档</button>
           <p class="pdf-status" id="pdf-status" role="status" aria-live="polite"></p>
           <div id="pdf-pages" hidden>
-            <label for="pdf-page">页码</label>
+            <label for="pdf-page" data-i18n="pdfPageNumber">页码</label>
             <select id="pdf-page"></select>
-            <label class="sr-only" for="pdf-text">本页提取的文字</label>
+            <label class="sr-only" for="pdf-text" data-i18n="pdfExtractedText">本页提取的文字</label>
             <textarea id="pdf-text" dir="auto" readonly rows="7"></textarea>
             <p class="pdf-status" id="pdf-selection-hint" aria-live="polite" hidden></p>
-            <button class="secondary-button" id="pdf-use-selection" type="button" disabled>使用选中文本</button>
+            <button class="secondary-button" id="pdf-use-selection" type="button" disabled data-i18n="pdfUseSelection">使用选中文本</button>
           </div>
         </details>
 
-        <section class="translator-card" aria-label="翻译工作区">
-          <div class="service-switcher" id="service-switcher" hidden>
-            <label for="service-profile">AI 配置</label>
-            <select id="service-profile" aria-describedby="service-profile-status"></select>
-            <span class="service-switcher-status" id="service-profile-status" role="status"></span>
-          </div>
-          <div class="section-label"><span class="section-index">01</span><span>原文</span><span class="section-rule"></span><span id="source-count">0 字</span></div>
-          <label class="sr-only" for="source-text">需要翻译的文字</label>
-          <textarea id="source-text" placeholder="在网页上选中文字，或在这里粘贴内容…" spellcheck="false"></textarea>
-          <div class="source-actions">
-            <button class="text-button" id="clear-source" type="button" disabled>清空</button>
-            <span class="keyboard-hint">⌘ / Ctrl + Enter</span>
-          </div>
-          <p id="source-plan" class="source-plan" role="status" hidden></p>
-          <div class="direction-line">
-            <span class="direction-dash" aria-hidden="true"></span>
-            <label for="target-language">译为</label>
-            <select id="target-language" class="target-language" aria-label="目标语言" aria-describedby="target-scope">
-              <option id="target-label" value="">简体中文（默认）</option>
-              <option id="handoff-target" hidden></option>
-              <optgroup id="target-options" label="临时目标语言"></optgroup>
-            </select>
-            <span class="sr-only" id="target-scope">临时选择仅在当前侧栏生效。</span>
-          </div>
-          <button class="translate-button" id="translate-button" type="button" disabled>
-            <span id="translate-label">开始翻译</span><span class="button-arrow" aria-hidden="true">↗</span>
-          </button>
-          <button class="translate-button stop-button" id="stop-button" type="button" aria-controls="result-panel" hidden>停止</button>
-        </section>
+        <div class="translation-workspace">
+          <button class="secondary-button comparison-switch" id="compare-translation" type="button"
+            aria-controls="translation-layout" aria-pressed="false" hidden data-i18n="readingComparison">对照阅读</button>
+          <div class="translation-layout" id="translation-layout">
+            <section class="translator-card" aria-label="翻译工作区" data-i18n-aria-label="translationWorkspace">
+              <div class="service-switcher" id="service-switcher" hidden>
+                <label for="service-profile" data-i18n="serviceProfileLabel">AI 配置</label>
+                <select id="service-profile" aria-describedby="service-profile-status"></select>
+                <span class="service-switcher-status" id="service-profile-status" role="status"></span>
+              </div>
+              <div class="section-label"><span class="section-index">01</span><span data-i18n="sourceText">原文</span><span class="section-rule"></span><span id="source-count" data-i18n="emptyCount">0 字</span></div>
+              <div id="source-editor">
+                <label class="sr-only" for="source-text" data-i18n="sourceLabel">需要翻译的文字</label>
+                <textarea id="source-text" placeholder="在网页上选中文字，或在这里粘贴内容…" data-i18n-placeholder="sourcePlaceholder" spellcheck="false"></textarea>
+                <div class="source-actions">
+                  <button class="text-button" id="clear-source" type="button" disabled data-i18n="clear">清空</button>
+                  <span class="keyboard-hint">⌘ / Ctrl + Enter</span>
+                </div>
+                <p id="source-plan" class="source-plan" role="status" hidden></p>
+                <div class="direction-line">
+                  <span class="direction-dash" aria-hidden="true"></span>
+                  <label for="target-language" data-i18n="translateInto">译为</label>
+                  <select id="target-language" class="target-language" aria-label="目标语言" data-i18n-aria-label="targetLanguage" aria-describedby="target-scope">
+                    <option id="target-label" value="" data-i18n="defaultChinese">简体中文（默认）</option>
+                    <option id="handoff-target" hidden></option>
+                    <optgroup id="target-options" label="临时目标语言" data-i18n-label="temporaryTarget"></optgroup>
+                  </select>
+                  <span class="sr-only" id="target-scope" data-i18n="panelLanguageScope">临时选择仅在当前侧栏生效。</span>
+                </div>
+                <button class="translate-button" id="translate-button" type="button" disabled>
+                  <span id="translate-label" data-i18n="startTranslation">开始翻译</span><span class="button-arrow" aria-hidden="true">↗</span>
+                </button>
+                <button class="translate-button stop-button" id="stop-button" type="button" aria-controls="result-panel" hidden data-i18n="stop">停止</button>
+              </div>
+              <p class="comparison-source" id="comparison-source" dir="auto" hidden></p>
+            </section>
 
-        <section class="result-section" aria-labelledby="result-title">
-          <div class="section-label"><span class="section-index">02</span><h2 id="result-title">译文</h2><span class="section-rule"></span><span class="result-state" id="result-state">等待输入</span></div>
-          <div class="result-panel" id="result-panel" aria-live="polite">
-            <div class="result-empty" id="result-empty"><span class="empty-glyph" aria-hidden="true">“</span><p>好文字，值得被读懂。</p><small>翻译结果会出现在这里</small></div>
-            <div class="result-loading" id="result-loading" hidden><span class="loader" aria-hidden="true"></span><span id="loading-progress">正在翻译…</span></div>
-            <p class="result-stopped" id="result-stopped" hidden>翻译已停止</p>
-            <p class="result-text" id="result-preview" dir="auto" aria-hidden="true" hidden></p>
-            <p class="result-text" id="result-text" hidden></p>
-            <div class="result-error" id="result-error" role="alert" hidden><strong>暂时没能完成翻译</strong><p id="error-message"></p></div>
+            <section class="result-section" aria-labelledby="result-title">
+              <div class="section-label"><span class="section-index">02</span><h2 id="result-title" data-i18n="translation">译文</h2><span class="section-rule"></span><span class="result-state" id="result-state" data-i18n="waitingForInput">等待输入</span></div>
+              <div class="result-panel" id="result-panel" aria-live="polite">
+                <div class="result-empty" id="result-empty"><span class="empty-glyph" aria-hidden="true">“</span><p data-i18n="emptyTranslation">好文字，值得被读懂。</p><small data-i18n="emptyTranslationHelp">翻译结果会出现在这里</small></div>
+                <div class="result-loading" id="result-loading" hidden><span class="loader" aria-hidden="true"></span><span id="loading-progress" data-i18n="workingTranslation">正在斟酌字句…</span></div>
+                <p class="result-stopped" id="result-stopped" hidden data-i18n="translationStopped">翻译已停止</p>
+                <p class="result-text" id="result-preview" dir="auto" aria-hidden="true" hidden></p>
+                <p class="result-text" id="result-text" hidden></p>
+                <div class="result-error" id="result-error" role="alert" hidden><strong data-i18n="translationProblem">暂时没能完成翻译</strong><p id="error-message"></p></div>
+              </div>
+              <div class="result-actions">
+                <button class="secondary-button" id="retry-button" type="button" disabled><span aria-hidden="true">↻</span> <span data-i18n="retry">重试</span></button>
+                <button class="secondary-button" id="copy-button" type="button" disabled><span aria-hidden="true">⧉</span> <span id="copy-label" data-i18n="copyTranslation">复制译文</span></button>
+              </div>
+            </section>
           </div>
-          <div class="result-actions">
-            <button class="secondary-button" id="retry-button" type="button" disabled><span aria-hidden="true">↻</span> 重试</button>
-            <button class="secondary-button" id="copy-button" type="button" disabled><span aria-hidden="true">⧉</span> <span id="copy-label">复制译文</span></button>
+        </div>
+        <details class="translation-history">
+          <summary data-i18n="history">翻译历史</summary>
+          <div class="history-actions">
+            <label><input id="enable-translation-history" type="checkbox" disabled /> <span data-i18n="recordLocally">在本机记录</span></label>
+            <button id="clear-translation-history" class="secondary-button" type="button" disabled data-i18n="clearHistory">清空历史</button>
           </div>
-        </section>
+          <p id="translation-history-status" role="status"></p>
+          <ul id="translation-history-list" aria-label="历史记录" data-i18n-aria-label="historyEntries"></ul>
+        </details>
       </main>
 
-      <footer><span class="footer-dot" aria-hidden="true"></span><span>文字仅发送至你配置的 AI 服务</span></footer>
+      <footer><span class="footer-dot" aria-hidden="true"></span><span data-i18n="providerPrivacy">文字仅发送至你配置的 AI 服务</span></footer>
     </div>
   </body>
 </html>

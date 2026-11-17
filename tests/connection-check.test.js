@@ -96,3 +96,18 @@ test('connection check keeps actionable HTTP errors without reading the provider
   );
   assert.equal(bodyRead, false);
 });
+
+test('connection tests accept a text sample cut short by either native provider', async () => {
+  const samples = {
+    anthropic: { type: 'message', stop_reason: 'max_tokens', content: [{ type: 'text', text: '你好' }] },
+    gemini: { candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '你好' }] } }] },
+  };
+
+  for (const [provider, sample] of Object.entries(samples)) {
+    const result = await checkConnection({
+      settings: { ...settings, provider, endpoint: '' },
+      fetchImpl: async () => Response.json(sample),
+    });
+    assert.equal(result.translation, '你好', provider);
+  }
+});

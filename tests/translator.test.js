@@ -42,17 +42,28 @@ test('translate sends a non-streaming Chat Completions request and returns its t
   assert.equal(body.messages[1].content, 'Hello, world!');
 });
 
-test('translate rejects partial text when the provider reports an output length limit', async () => {
-  await assert.rejects(() => translate({
-    text: 'Hello',
-    settings,
-    fetchImpl: async () => ({
-      ok: true,
-      json: async () => ({
-        choices: [{ finish_reason: 'length', message: { content: '截断的译文片段' } }],
-      }),
-    }),
-  }), /译文因长度限制而中断.*输出上限更高的模型/);
+test('translate sends only the chosen custom credential header and checks the exact host grant', async () => {
+  for (const [authType, endpoint, origin, authentication] of [
+    ['x-api-key', 'https://example.com/chat', 'https://example.com/*', { 'x-api-key': 'private-key' }],
+    ['api-key', 'https://example.com/chat', 'https://example.com/*', { 'api-key': 'private-key' }],
+    ['none', 'http://127.0.0.1:3981/translate', 'http://127.0.0.1/*', {}],
+  ]) {
+    const granted = [];
+    const result = await translate({
+      text: 'Hello',
+      settings: { ...settings, authType, endpoint },
+      permissionsApi: { contains: async (request) => { granted.push(request); return true; } },
+      fetchImpl: async (url, options) => {
+        assert.equal(url, endpoint);
+        assert.deepEqual(options.headers, { 'Content-Type': 'application/json', ...authentication });
+        assert.equal(options.redirect, 'error');
+        assert.equal(options.credentials, 'omit');
+        return { ok: true, json: async () => ({ choices: [{ message: { content: '译文' } }] }) };
+      },
+    });
+    assert.deepEqual(granted, [{ origins: [origin] }]);
+    assert.equal(result, '译文');
+  }
 });
 
 test('Azure OpenAI sends only the Azure resource key in ordinary and streaming completions', async () => {
@@ -115,6 +126,49 @@ test('Azure OpenAI rejects unauthorized or anonymous requests and omits provider
   assert.equal(calls, 0);
   await assert.rejects(() => translate(attempt), /HTTP 404.*部署名称/);
   assert.equal(calls, 1);
+});
+
+test('translate rejects partial text when the provider reports an output length limit', async () => {
+  await assert.rejects(() => translate({
+    text: 'Hello',
+    settings,
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{ finish_reason: 'length', message: { content: '截断的译文片段' } }],
+      }),
+    }),
+  }), /译文因长度限制而中断.*输出上限更高的模型/);
+});
+
+test('translate emits stream deltas and returns the complete text when the service finishes', async () => {
+  const deltas = [];
+  const events = [
+    { choices: [{ delta: { content: '你好，' } }] },
+    { choices: [{ delta: { content: '世界！' }, finish_reason: 'stop' }] },
+  ];
+  const response = new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''), {
+    headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
+  });
+  const result = await translate({
+    text: 'Hello, world!', settings, onDelta: (delta) => deltas.push(delta),
+    fetchImpl: async (_url, options) => {
+      assert.equal(JSON.parse(options.body).stream, true);
+      return response;
+    },
+  });
+  assert.deepEqual(deltas, ['你好，', '世界！']);
+  assert.equal(result, '你好，世界！');
+});
+
+test('streaming translation accepts a complete JSON fallback without emitting partial results', async () => {
+  const result = await translate({
+    text: 'Hello', settings, onDelta: () => assert.fail('JSON is already complete'),
+    fetchImpl: async () => new Response(JSON.stringify({ choices: [{ message: { content: '你好' } }] }), {
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  });
+  assert.equal(result, '你好');
 });
 
 test('translate rejects empty and overlong text before a network request', async () => {

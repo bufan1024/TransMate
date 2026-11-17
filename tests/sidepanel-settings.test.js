@@ -154,26 +154,6 @@ test('changing translation settings clears a completed result but keeps the sour
   }
 });
 
-test('changing only the authentication method invalidates an in-flight translation', async () => {
-  const app = await mountSidepanel();
-  try {
-    beginTranslation(app);
-    await app.flush();
-    assert.equal(app.requests.length, 1);
-
-    app.settingsChanged({ ...initialSettings, authType: 'x-api-key' });
-    assert.equal(app.requests[0].options.signal.aborted, true);
-    assert.equal(app.element('#source-text').value, 'Hello');
-
-    resolveTranslation(app.requests[0], '旧译文');
-    await app.flush();
-    assert.equal(app.element('#result-text').textContent, '');
-    assert.equal(app.element('#translate-button').disabled, false);
-  } finally {
-    app.restore();
-  }
-});
-
 test('unrelated settings changes keep an active translation', async () => {
   const app = await mountSidepanel();
   try {

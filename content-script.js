@@ -717,7 +717,7 @@
     state.targetLanguageId = message.targetLanguageId || '';
     state.targetLanguage = message.targetLanguage || '';
     const sourceOnly = message.sourceOnly === true;
-    state.error = sourceOnly ? '选文较长，请在侧栏分段翻译。' : '';
+    state.error = sourceOnly ? localize('longSelectionSidePanel', '选文较长，请在侧栏分段翻译。') : '';
     state.status = sourceOnly ? 'source-only' : 'loading';
     if (!message.retryOf) {
       state.languages = Array.isArray(message.languages) ? message.languages : [];

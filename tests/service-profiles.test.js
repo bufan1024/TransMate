@@ -292,3 +292,16 @@ test('concurrent profile edits preserve other profiles and reject a deleted edit
   }), /配置已被删除/);
   assert.equal(env.store.serviceProfiles.profiles.length, 1);
 });
+
+test('service cleanup keeps site grants that share the configured provider host', async () => {
+  const env = fixture(original, [oldOrigin, newOrigin, unrelatedOrigin]);
+  env.store.pageTranslationSites = ['https://old.example:8443'];
+  const { activeId } = await profiles.readServiceProfiles(env.storageArea);
+
+  await profiles.saveSettingsWithPermission({ ...env, profileId: activeId, name: '新服务', draft: second });
+  assert.deepEqual([...env.origins], [oldOrigin, newOrigin, unrelatedOrigin]);
+
+  await profiles.resetServiceProfiles(env);
+  assert.deepEqual([...env.origins], [oldOrigin]);
+  assert.deepEqual(env.store, { pageTranslationSites: ['https://old.example:8443'] });
+});

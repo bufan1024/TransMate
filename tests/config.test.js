@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  AZURE_OPENAI_PROVIDER,
   DEFAULT_SETTINGS,
   PROVIDERS,
   originPatternForEndpoint,
@@ -26,6 +27,7 @@ test('provider presets point to their documented API endpoints', () => {
       { id: 'openrouter', endpoint: 'https://openrouter.ai/api/v1/chat/completions' },
       { id: 'anthropic', endpoint: 'https://api.anthropic.com/v1/messages' },
       { id: 'gemini', endpoint: 'https://generativelanguage.googleapis.com/v1beta' },
+      { id: AZURE_OPENAI_PROVIDER, endpoint: '' },
     ],
   );
   assert.equal(DEFAULT_SETTINGS.provider, 'openai');
@@ -174,4 +176,48 @@ test('originPatternForEndpoint returns a Chrome host permission pattern without 
   assert.equal(originPatternForEndpoint('http://localhost:1234/translate', 'custom'), 'http://localhost/*');
   assert.throws(() => originPatternForEndpoint('http://localhost:1234/translate', 'openai'), Error);
   assert.throws(() => originPatternForEndpoint('http://example.com/v1/chat/completions'), Error);
+});
+
+test('Azure OpenAI accepts public resource roots and v1 paths and uses the deployment name', () => {
+  for (const suffix of ['openai.azure.com', 'services.ai.azure.com']) {
+    const resource = `https://test-resource.${suffix}`;
+    const endpoint = resource + '/openai/v1/chat/completions';
+    for (const input of [resource, resource + '/', resource + '/openai/v1', endpoint, endpoint + '/']) {
+      const config = validateSettings({ ...valid, provider: AZURE_OPENAI_PROVIDER, endpoint: input, model: ' my-deployment ' });
+      assert.equal(config.endpoint, endpoint);
+      assert.equal(config.authType, 'api-key');
+      assert.equal(config.model, 'my-deployment');
+      assert.equal(originPatternForEndpoint(input, AZURE_OPENAI_PROVIDER), resource + '/*');
+    }
+  }
+  const config = validateSettings({
+    ...valid, provider: AZURE_OPENAI_PROVIDER, endpoint: 'HTTPS://TEST-RESOURCE.OPENAI.AZURE.COM:443/openai/v1/',
+  });
+  assert.equal(config.endpoint, 'https://test-resource.openai.azure.com/openai/v1/chat/completions');
+});
+
+test('Azure OpenAI rejects non-resource hosts, non-v1 paths and every other authentication method', () => {
+  const azure = { ...valid, provider: AZURE_OPENAI_PROVIDER, endpoint: 'https://test-resource.openai.azure.com' };
+  for (const endpoint of [
+    'http://test-resource.openai.azure.com',
+    'https://test-resource.openai.azure.com:444',
+    'http://localhost:4000/openai/v1',
+    'https://openai.azure.com',
+    'https://prefix.test-resource.openai.azure.com',
+    'https://test-resource.openai.azure.com.example.com/openai/v1',
+    'https://test-resource.openai.azure.com@example.com/openai/v1',
+    'https://%74est-resource.openai.azure.com/openai/v1',
+    'https://test-resource.openai.azure.com/openai/deployments/demo/chat/completions',
+    'https://test-resource.openai.azure.com/openai/v1/chat/completions?api-version=2025-01-01',
+    'https://test-resource.openai.azure.com/openai/v1/chat/completions#anchor',
+    'https://test-resource.openai.azure.com/openai/v1/../v1/',
+    'https://test-resource.openai.azure.com/v1/chat/completions',
+  ]) {
+    assert.throws(() => validateSettings({ ...azure, endpoint }), /接口地址/, endpoint);
+  }
+  for (const authType of ['bearer', 'x-api-key', 'none']) {
+    assert.throws(() => validateSettings({ ...azure, authType }), /认证方式/);
+  }
+  assert.throws(() => validateSettings({ ...azure, apiKey: '' }), /API Key/);
+  assert.throws(() => validateSettings({ ...azure, model: '' }), /部署名称/);
 });

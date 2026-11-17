@@ -30,7 +30,7 @@
     "message": "Cancel translation"
   },
   "cannotCheckGrant": {
-    "message": "Could not verify domain access. Save again and allow access."
+    "message": "Could not verify domain access. Try again and allow access."
   },
   "cannotDisplayCard": {
     "message": "The translation card could not be opened."
@@ -62,7 +62,7 @@
     "message": "Translation timed out. Please try again."
   },
   "changedEndpointKey": {
-    "message": "The service or endpoint changed. Enter a new API key."
+    "message": "The service, endpoint, or authentication method changed. Enter a new API key."
   },
   "characterCount": {
     "message": "$ARG1$ characters",
@@ -121,7 +121,7 @@
     "message": "Configure an AI service to start translating."
   },
   "confirmReset": {
-    "message": "Reset all settings, remove the saved key, and revoke authorized domains?"
+    "message": "Reset the AI service profiles, clear their keys, and revoke domain grants they no longer use?"
   },
   "connectAI": {
     "message": "Connect an AI service"
@@ -240,13 +240,13 @@
     "message": "Use an HTTPS endpoint. Only localhost and 127.0.0.1 can use HTTP."
   },
   "endpointHelp": {
-    "message": "Enter the full Chat Completions endpoint. Only local services can use HTTP."
+    "message": "Enter the full Chat Completions URL. HTTP is available only for local services."
   },
   "endpointInvalid": {
     "message": "Enter a valid endpoint URL."
   },
   "endpointLabel": {
-    "message": "Endpoint"
+    "message": "Endpoint URL"
   },
   "endpointNoCredentials": {
     "message": "An endpoint cannot contain credentials, a query, or a fragment."
@@ -289,7 +289,7 @@
     "message": "Getting started"
   },
   "grantChanged": {
-    "message": "Domain access changed. Save again and allow access."
+    "message": "Domain access changed. Try again and allow access."
   },
   "heroFirst": {
     "message": "Translate"
@@ -333,10 +333,13 @@
     }
   },
   "invalidCompletion": {
-    "message": "The service returned $ARG1$, but the response was not valid Chat Completions JSON. Check the endpoint and compatibility.",
+    "message": "The service returned $ARG1$, but its response was not valid $ARG2$ JSON. Check the endpoint and compatibility.",
     "placeholders": {
       "arg1": {
         "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
       }
     }
   },
@@ -356,7 +359,7 @@
     "message": "The AI service returned an invalid stream. Try again or choose another model."
   },
   "keyNeeded": {
-    "message": "Enter an API key. It can be left blank only when reusing a key for the same service and exact endpoint."
+    "message": "Enter an API key. You can reuse a saved key when the service, exact endpoint, and authentication method match."
   },
   "langChineseSimplified": {
     "message": "Simplified Chinese"
@@ -398,21 +401,27 @@
     "message": "en"
   },
   "missingCompletion": {
-    "message": "The service returned $ARG1$, but no valid $ARG2$. Check model compatibility with Chat Completions.",
+    "message": "The service returned $ARG1$, but no valid $ARG2$. Check that the model supports $ARG3$.",
     "placeholders": {
       "arg1": {
         "content": "$1"
       },
       "arg2": {
         "content": "$2"
+      },
+      "arg3": {
+        "content": "$3"
       }
     }
   },
   "missingProviderModel": {
-    "message": "$ARG1$ The endpoint or model was not found. Check the Chat Completions URL and model ID.",
+    "message": "$ARG1$ The endpoint or model was not found. Check the $ARG2$ URL and model ID.",
     "placeholders": {
       "arg1": {
         "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
       }
     }
   },
@@ -429,7 +438,7 @@
     "message": "Enter a new API key"
   },
   "noGrantedOrigins": {
-    "message": "No service domains are authorized."
+    "message": "No domains are authorized."
   },
   "noKeyToClear": {
     "message": "There is no saved API key."
@@ -626,7 +635,7 @@
     "message": "Settings were reset. Some domains still have access. Revoke them below."
   },
   "resultLengthLimit": {
-    "message": "The $ARG1$ exceeded the output limit. Use a model with a higher output limit.",
+    "message": "The $ARG1$ was cut off at the output limit. Try a model with a higher output limit.",
     "placeholders": {
       "arg1": {
         "content": "$1"
@@ -646,7 +655,7 @@
     "message": "Revoke"
   },
   "revokeHelp": {
-    "message": "If you revoke access to the current service, save or test the connection again to keep translating."
+    "message": "Revoking access affects service profiles and automatic translation for this domain. Switch profiles, save a profile, or test a connection to grant access again."
   },
   "revokeOriginFailed": {
     "message": "Access to $ARG1$ is still granted. Retry or revoke it in Chrome's extensions page.",
@@ -702,13 +711,13 @@
     "message": "Selection translation"
   },
   "serviceModelPlaceholder": {
-    "message": "Enter a model ID supported by your service"
+    "message": "Enter a model ID supported by the service"
   },
   "serviceNetworkError": {
     "message": "Could not connect to the AI service. Check the endpoint, network, and site access."
   },
   "servicePresetsHelp": {
-    "message": "Presets fill in the endpoint. You can edit it or enter a custom OpenAI-compatible endpoint."
+    "message": "Select an AI service, or enter a custom OpenAI-compatible endpoint."
   },
   "serviceTimeout": {
     "message": "The service timed out. Check its status and try again."
@@ -732,7 +741,7 @@
     "message": "Could not read local settings. Reopen settings."
   },
   "settingsReset": {
-    "message": "Local settings and keys were reset, and domain access was revoked."
+    "message": "AI service profiles and keys were reset. Unused domain grants were revoked."
   },
   "settingsResetFailed": {
     "message": "Could not reset. Your previous settings remain. Check browser storage and try again."
@@ -741,7 +750,7 @@
     "message": "Could not save. Check browser storage and permissions. Newly granted domains may still appear below."
   },
   "settingsSaved": {
-    "message": "Settings saved. Select text on a webpage to start translating."
+    "message": "Profile saved."
   },
   "settingsTab": {
     "message": "SETTINGS"
@@ -912,5 +921,807 @@
   },
   "wrongPageParagraphs": {
     "message": "The translations do not match the page paragraphs. Restart the translation."
+  },
+  "azureEndpointLabel": {
+    "message": "Azure resource URL"
+  },
+  "azureEndpointHelp": {
+    "message": "Enter the Azure resource HTTPS URL. You can also enter the /openai/v1 path or the full Chat Completions v1 URL."
+  },
+  "claudeEndpointHelp": {
+    "message": "Enter the Claude Messages URL ending in /v1/messages."
+  },
+  "geminiEndpointHelp": {
+    "message": "Enter the Gemini API base URL ending in /v1beta or /v1. Enter the model ID below."
+  },
+  "customEndpointHelp": {
+    "message": "Enter the full Chat Completions request URL. Custom services may use a different path."
+  },
+  "azureKeyLabel": {
+    "message": "Azure resource API key"
+  },
+  "azureDeploymentName": {
+    "message": "deployment name"
+  },
+  "azureModelPlaceholder": {
+    "message": "Enter the Azure deployment name"
+  },
+  "newProfileOption": {
+    "message": "New profile"
+  },
+  "switchingProfile": {
+    "message": "Switching the active AI profile…"
+  },
+  "switchProfileDenied": {
+    "message": "Access to the service was denied. The active profile is unchanged."
+  },
+  "profileActivated": {
+    "message": "Active AI profile switched."
+  },
+  "profileSwitchFailed": {
+    "message": "Could not switch profiles. Check the settings and site permissions."
+  },
+  "profileDeletedCleanupFailed": {
+    "message": "Profile deleted. Some domain grants could not be revoked."
+  },
+  "profileDeleted": {
+    "message": "Profile deleted."
+  },
+  "deleteProfileFailed": {
+    "message": "Could not delete the profile. Check browser storage and try again."
+  },
+  "profileNameLength": {
+    "message": "Enter a profile name of 1 to 48 characters."
+  },
+  "editedProfileDeleted": {
+    "message": "This profile was deleted. Choose another profile or create one."
+  },
+  "connectionResultStale": {
+    "message": "A sample translation arrived, but the profile changed during the connection test. Run the test again."
+  },
+  "connectionProfileSaved": {
+    "message": "The current profile is saved."
+  },
+  "connectionProfileUnsaved": {
+    "message": "The current draft is unsaved."
+  },
+  "profileChangedRetest": {
+    "message": "Local settings changed. Run the connection test again."
+  },
+  "activeProfileLabel": {
+    "message": "$ARG1$ (active)",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "confirmDeleteProfile": {
+    "message": "Delete the profile “$ARG1$” and its key?",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "profileConnectionSuccess": {
+    "message": "The service returned a translation in $ARG1$ seconds. Sample: “$ARG2$”. ",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "azureEndpointHost": {
+    "message": "Enter an HTTPS Azure resource URL on openai.azure.com or services.ai.azure.com."
+  },
+  "azureEndpointPath": {
+    "message": "Enter the Azure resource root, /openai/v1, or the full /openai/v1/chat/completions URL."
+  },
+  "geminiEndpointPath": {
+    "message": "Enter a Gemini API base URL ending in /v1 or /v1beta."
+  },
+  "invalidAuthType": {
+    "message": "Choose an authentication method supported by the service."
+  },
+  "noKeyLocalOnly": {
+    "message": "Keyless access requires an HTTP or HTTPS endpoint on localhost or 127.0.0.1."
+  },
+  "invalidGeminiModel": {
+    "message": "Enter the Gemini model ID. You can include the models/ prefix."
+  },
+  "invalidClaudeWorkspace": {
+    "message": "Enter a valid Claude workspace ID."
+  },
+  "invalidClaudeWorkspacePrefix": {
+    "message": "Enter a Claude workspace ID starting with wrkspc_."
+  },
+  "providerEndpointRequired": {
+    "message": "Enter the full $ARG1$ endpoint.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "defaultProfileName": {
+    "message": "Default profile"
+  },
+  "profileCatalogReadFailed": {
+    "message": "Could not read the saved service profiles. Check the profiles or reset them."
+  },
+  "profileRemoved": {
+    "message": "This profile was deleted. Choose another profile or create one."
+  },
+  "profileIncomplete": {
+    "message": "Complete the service details and API key for this profile in Settings."
+  },
+  "activateOriginChanged": {
+    "message": "The service domain changed. Select the profile again and allow access."
+  },
+  "azureHttpFailure": {
+    "message": "Check the Azure resource URL and deployment name, and confirm the deployment supports Chat Completions."
+  },
+  "missingStreamTranslation": {
+    "message": "The AI service returned no valid translation. Try again or change models."
+  },
+  "endpointOriginMismatch": {
+    "message": "Could not build a request to the authorized AI service domain."
+  },
+  "aiProfiles": {
+    "message": "AI profiles"
+  },
+  "serviceProfilesLabel": {
+    "message": "Local service profiles"
+  },
+  "newProfile": {
+    "message": "New profile"
+  },
+  "setActiveProfile": {
+    "message": "Set active"
+  },
+  "deleteProfile": {
+    "message": "Delete profile"
+  },
+  "profileName": {
+    "message": "Profile name"
+  },
+  "authTypeLabel": {
+    "message": "Authentication method"
+  },
+  "xApiKeyHeader": {
+    "message": "x-api-key header"
+  },
+  "apiKeyHeader": {
+    "message": "api-key header"
+  },
+  "keylessLocalService": {
+    "message": "Local service without a key"
+  },
+  "keylessLocalHelp": {
+    "message": "Only localhost and 127.0.0.1 can connect without a key."
+  },
+  "claudeWorkspaceLabel": {
+    "message": "Claude workspace ID"
+  },
+  "whenKeyRequires": {
+    "message": "When required by your key"
+  },
+  "claudeWorkspaceHelp": {
+    "message": "An organization-wide API key requires a workspace ID. A workspace-scoped key can leave it blank."
+  },
+  "azureDeploymentHelp": {
+    "message": "Enter the name of the model deployment in the Azure portal."
+  },
+  "saveTestedProfile": {
+    "message": "Save tested profile"
+  },
+  "resetServiceSettings": {
+    "message": "Reset service profiles"
+  },
+  "siteTranslationTitle": {
+    "message": "Automatic site translation"
+  },
+  "siteTranslationHelp": {
+    "message": "Off by default. After you enable it, newly loaded pages on this site send text near your reading position to your chosen AI service. The preference applies to the exact scheme, host, and port. Chrome domain access covers all ports on the host."
+  },
+  "siteTranslationAddress": {
+    "message": "Site URL"
+  },
+  "enableSiteTranslation": {
+    "message": "Allow and enable"
+  },
+  "enabledSiteTranslationList": {
+    "message": "Sites with automatic translation enabled"
+  },
+  "glossaryTitle": {
+    "message": "Glossary"
+  },
+  "glossaryNote": {
+    "message": "Save fixed translations locally. When enabled, only terms that match the current translation are sent to the AI service."
+  },
+  "glossaryEnable": {
+    "message": "Enable glossary"
+  },
+  "glossarySource": {
+    "message": "Source term"
+  },
+  "glossaryTarget": {
+    "message": "Preferred translation"
+  },
+  "glossaryLanguage": {
+    "message": "Apply to target language"
+  },
+  "glossaryAdd": {
+    "message": "Add term"
+  },
+  "glossaryCancel": {
+    "message": "Cancel editing"
+  },
+  "glossaryImport": {
+    "message": "Import JSON"
+  },
+  "glossaryExport": {
+    "message": "Export JSON"
+  },
+  "glossaryClear": {
+    "message": "Clear glossary"
+  },
+  "glossarySavedList": {
+    "message": "Saved terms"
+  },
+  "glossarySave": {
+    "message": "Save term"
+  },
+  "glossaryEmpty": {
+    "message": "No terms saved yet."
+  },
+  "glossaryEdit": {
+    "message": "Edit"
+  },
+  "glossaryDelete": {
+    "message": "Delete"
+  },
+  "glossaryRemoveConflict": {
+    "message": "This term changed in another settings tab. Select it again to delete."
+  },
+  "glossaryDeleted": {
+    "message": "Term deleted."
+  },
+  "glossaryUpdateFailed": {
+    "message": "Could not update the glossary. Try again."
+  },
+  "glossaryEditConflict": {
+    "message": "This term changed in another settings tab. Select it again to edit."
+  },
+  "glossaryTermSaved": {
+    "message": "Term saved."
+  },
+  "glossaryTermAdded": {
+    "message": "Term added."
+  },
+  "glossaryEnabled": {
+    "message": "Glossary enabled."
+  },
+  "glossaryDisabled": {
+    "message": "Glossary disabled."
+  },
+  "glossaryConfirmClear": {
+    "message": "Clear all locally saved glossary terms?"
+  },
+  "glossaryCleared": {
+    "message": "Glossary cleared."
+  },
+  "glossaryFileLarge": {
+    "message": "The glossary file is too large."
+  },
+  "glossaryImported": {
+    "message": "Glossary terms imported."
+  },
+  "glossaryImportError": {
+    "message": "Could not read the glossary file."
+  },
+  "glossaryLoadFailed": {
+    "message": "Could not load the local glossary. Reopen Settings."
+  },
+  "glossaryConfirmImport": {
+    "message": "Import $ARG1$ terms and replace all local terms?",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "claudeInvalidStream": {
+    "message": "Claude returned an invalid stream. Try again or check the endpoint."
+  },
+  "claudeResultLimited": {
+    "message": "Claude cut off the $ARG1$ at its output limit. Shorten the source text and try again.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "claudeResultFailed": {
+    "message": "Claude could not complete the $ARG1$. Check the content and try again.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "claudeResultIncomplete": {
+    "message": "Claude did not return the full $ARG1$. Try again.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "claudeBusy": {
+    "message": "Claude is busy. Try again later."
+  },
+  "claudeRateLimit": {
+    "message": "Claude received too many requests. Check your quota and try again later."
+  },
+  "claudeError": {
+    "message": "Could not process Claude’s response. Try again later."
+  },
+  "claudeEarlyStreamEnd": {
+    "message": "Claude’s stream ended early. Try again."
+  },
+  "claudeHttpFailure": {
+    "message": "Check the Claude endpoint, model ID, and workspace ID."
+  },
+  "geminiInvalidResponse": {
+    "message": "Gemini returned an invalid response. Check the model and try again."
+  },
+  "geminiContentFiltered": {
+    "message": "Gemini filtered this request. Adjust the source text or try another model."
+  },
+  "geminiError": {
+    "message": "Gemini returned an error. Check the service and try again."
+  },
+  "geminiUnsupportedLanguage": {
+    "message": "This Gemini model does not support the requested language. Try another model."
+  },
+  "geminiHttpFailure": {
+    "message": "Gemini rejected the request. Check the API key, version, and model ID."
+  },
+  "geminiEarlyStreamEnd": {
+    "message": "Gemini’s stream ended early. Try again."
+  },
+  "glossaryPhraseLength": {
+    "message": "$ARG1$ must be a single line of 1–$ARG2$ characters.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "glossaryMaximumEntries": {
+    "message": "The glossary can hold up to $ARG1$ terms.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "glossaryIndexedLanguage": {
+    "message": "Term $ARG1$ has an invalid target language.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "glossaryIndexedSource": {
+    "message": "The source text for term $ARG1$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "glossaryIndexedTarget": {
+    "message": "The preferred translation for term $ARG1$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "glossaryDuplicateEntry": {
+    "message": "The source text and target language of term $ARG1$ duplicate another term.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "glossaryInvalidJson": {
+    "message": "The glossary file must be valid JSON."
+  },
+  "glossaryInvalidFormat": {
+    "message": "Unrecognized glossary file format. Choose a file exported by TransMate."
+  },
+  "openTransMate": {
+    "message": "Open TransMate"
+  },
+  "autoPageStatus": {
+    "message": "Auto-translation · $ARG1$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "pageRetryUnavailable": {
+    "message": "Could not resume translation. Start page translation again."
+  },
+  "restorePageBilingual": {
+    "message": "Show original and translation"
+  },
+  "pageTranslationOnly": {
+    "message": "Translation only"
+  },
+  "pageRetryUnfinished": {
+    "message": "Retry unfinished paragraphs"
+  },
+  "pageSummarySource": {
+    "message": "Source: $ARG1$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "pageSummaryCurrentPage": {
+    "message": "Current webpage"
+  },
+  "pageSummaryCombineBatch": {
+    "message": "Combining section highlights (batch $ARG1$ of $ARG2$)…",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "pageSummaryCombine": {
+    "message": "Combining section highlights…"
+  },
+  "pageSummaryExtractBatch": {
+    "message": "Extracting page highlights (batch $ARG1$ of $ARG2$)…",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "pageSitePermissionChanged": {
+    "message": "Site permissions changed. Grant access to enable automatic translation."
+  },
+  "currentPage": {
+    "message": "Current page"
+  },
+  "translateCurrentPage": {
+    "message": "Translate this page"
+  },
+  "summarizeCurrentPage": {
+    "message": "Summarize this page"
+  },
+  "retryPageSummary": {
+    "message": "Retry summary"
+  },
+  "serviceProfileLabel": {
+    "message": "AI profile"
+  },
+  "profileSwitchLocks": {
+    "message": "Update Chrome to switch profiles securely."
+  },
+  "profileSwitchWorking": {
+    "message": "Switching profiles…"
+  },
+  "profileSwitchPermission": {
+    "message": "Access to this service was denied."
+  },
+  "panelPageNeedsSettings": {
+    "message": "Configure an AI service in Settings first."
+  },
+  "panelPageUnavailableWindow": {
+    "message": "Could not identify the current window. Reopen the side panel."
+  },
+  "panelPageReading": {
+    "message": "Reading the current page…"
+  },
+  "panelPageStarted": {
+    "message": "Bilingual translation started on the page."
+  },
+  "panelPageStartFailed": {
+    "message": "Could not start this action. Try again from the page’s context menu."
+  },
+  "longTextLimit": {
+    "message": "Shorten the source text to $ARG1$ characters or fewer.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "longTextResumePlan": {
+    "message": "$ARG1$ of $ARG2$ sections translated. Resuming sends $ARG3$ requests. Your AI service sets the cost.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      },
+      "arg3": {
+        "content": "$3"
+      }
+    }
+  },
+  "longTextPlan": {
+    "message": "Translating $ARG1$ sections in order will send $ARG1$ requests. Your AI service sets the cost.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "resumeLongTranslation": {
+    "message": "Resume translation"
+  },
+  "longTextStopped": {
+    "message": "Translation stopped after $ARG1$ of $ARG2$ sections.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "longTextProgress": {
+    "message": "Translating section $ARG1$ of $ARG2$…",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "longTextPartFailed": {
+    "message": "Section $ARG1$ of $ARG2$ was not completed. $ARG3$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      },
+      "arg3": {
+        "content": "$3"
+      }
+    }
+  },
+  "localPdf": {
+    "message": "Translate a local PDF"
+  },
+  "localPdfHelp": {
+    "message": "Text is extracted on this device. Select a passage and choose Use selected text, then start translation below. Scanned PDFs require OCR."
+  },
+  "chooseLocalPdf": {
+    "message": "Choose a local PDF"
+  },
+  "closePdf": {
+    "message": "Close document"
+  },
+  "pdfPageNumber": {
+    "message": "Page"
+  },
+  "pdfExtractedText": {
+    "message": "Text extracted from this page"
+  },
+  "pdfUseSelection": {
+    "message": "Use selected text"
+  },
+  "pdfReadError": {
+    "message": "Could not read this PDF. Check that the file is intact or try another one."
+  },
+  "pdfTooLarge": {
+    "message": "Choose a PDF of 20 MB or less."
+  },
+  "pdfEmptyFile": {
+    "message": "This file is empty. Choose a PDF with content."
+  },
+  "pdfInvalidHeader": {
+    "message": "This file is not a PDF. Choose a PDF file."
+  },
+  "pdfReadTimeout": {
+    "message": "Reading timed out. Choose a smaller PDF or one with fewer pages."
+  },
+  "pdfRequiresPassword": {
+    "message": "This PDF is password protected. Choose an unlocked local copy."
+  },
+  "pdfMinimumChrome": {
+    "message": "Reading local PDF text requires Chrome 125 or later."
+  },
+  "pdfOcrNeeded": {
+    "message": "This page has no extractable text. Scanned pages require OCR."
+  },
+  "pdfTextTruncated": {
+    "message": "Only the start of this page fits in the preview."
+  },
+  "pdfCancelRead": {
+    "message": "Cancel reading"
+  },
+  "pdfOpening": {
+    "message": "Opening the PDF on this device…"
+  },
+  "pdfSelectionLimit": {
+    "message": "Narrow the selection to $ARG1$ characters or fewer.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "pdfPageStatus": {
+    "message": "$ARG1$ · Page $ARG2$ of $ARG3$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      },
+      "arg3": {
+        "content": "$3"
+      }
+    }
+  },
+  "pdfPagesTruncated": {
+    "message": "The preview includes the first $ARG1$ pages.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "pdfReadProgress": {
+    "message": "Reading page $ARG1$ of $ARG2$…",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "pdfPageOption": {
+    "message": "Page $ARG1$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "longSelectionLimit": {
+    "message": "A selection can contain up to $ARG1$ characters. Select less text and try again.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "videoTranslateMenu": {
+    "message": "Translate video captions"
+  },
+  "siteTranslationMenu": {
+    "message": "Auto-translation settings for this site"
+  },
+  "panelPageUnavailable": {
+    "message": "This page cannot be accessed. Open a regular webpage and start from its context menu."
+  },
+  "longSelectionSidePanel": {
+    "message": "Open this long selection in the side panel to translate it in sections."
+  },
+  "captionCancelled": {
+    "message": "Caption translation was stopped or timed out."
+  },
+  "captionTranslationFailed": {
+    "message": "Could not translate the caption."
+  },
+  "captionReopen": {
+    "message": "Reopen caption translation and try again."
+  },
+  "captionTranslation": {
+    "message": "Caption translation"
+  },
+  "captionSource": {
+    "message": "Original captions"
+  },
+  "captionTargetLanguage": {
+    "message": "Caption target language"
+  },
+  "captionUnavailable": {
+    "message": "This video has no readable standard caption tracks."
+  },
+  "captionTrackNumber": {
+    "message": "Caption track $ARG1$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "noAutoTranslationSites": {
+    "message": "Auto-translation is disabled for all sites."
+  },
+  "disableSiteAutoTranslation": {
+    "message": "Turn off auto-translation for $ARG1$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "sitePreferencesReadError": {
+    "message": "Could not read site preferences. Reopen settings and try again."
+  },
+  "siteAutoTranslationDisabled": {
+    "message": "Auto-translation is off for $ARG1$.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "siteDisabledWithPermission": {
+    "message": "Auto-translation is off for $ARG1$. You can manage site access in Chrome’s extension settings.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "disableSiteAutoTranslationError": {
+    "message": "Could not turn off auto-translation. Try again."
+  },
+  "invalidAutoTranslationSite": {
+    "message": "Enter an HTTPS page address. HTTP is allowed for localhost and 127.0.0.1."
+  },
+  "sitePermissionDenied": {
+    "message": "Site access was denied. The site preference is unchanged."
+  },
+  "siteAutoTranslationEnabled": {
+    "message": "Auto-translation for $ARG1$ will start the next time a page on the site loads.",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "enableSiteAutoTranslationError": {
+    "message": "Could not enable auto-translation. Check the site’s Chrome permissions and try again."
   }
 }

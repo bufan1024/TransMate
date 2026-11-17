@@ -1,4 +1,6 @@
-import { DEFAULT_AUTH_TYPE, DEFAULT_SETTINGS, PROVIDERS, originPatternForEndpoint } from "./lib/config.js";
+import { localizeDocument, message as localize } from "./lib/i18n.js";
+import { AZURE_OPENAI_PROVIDER, DEFAULT_AUTH_TYPE, DEFAULT_SETTINGS, PROVIDERS, defaultAuthTypeForProvider, originPatternForEndpoint } from "./lib/config.js";
+import { createGlossaryEditor } from "./lib/glossary-options.js";
 import { checkConnection } from "./lib/connection-check.js";
 import {
   DEFAULT_PROFILE_NAME, SERVICE_PROFILES_KEY, SettingsOperationError, activateServiceProfile,
@@ -13,6 +15,7 @@ const newProfileButton = document.querySelector("#new-profile");
 const activateProfileButton = document.querySelector("#activate-profile");
 const deleteProfileButton = document.querySelector("#delete-profile");
 const providerList = document.querySelector("#provider-list");
+const endpointLabel = document.querySelector("#endpoint-label");
 const endpointInput = document.querySelector("#endpoint");
 const endpointHelp = document.querySelector("#endpoint-help");
 const customAuthentication = document.querySelector("#custom-authentication");
@@ -20,7 +23,10 @@ const authTypeInput = document.querySelector("#auth-type");
 const claudeWorkspace = document.querySelector("#claude-workspace");
 const workspaceIdInput = document.querySelector("#workspace-id");
 const apiKeyField = document.querySelector("#api-key-field");
+const apiKeyLabel = document.querySelector("#api-key-label");
 const apiKeyInput = document.querySelector("#api-key");
+const modelLabel = document.querySelector("#model-label");
+const modelHelp = document.querySelector("#model-help");
 const modelInput = document.querySelector("#model");
 const targetInput = document.querySelector("#target-language");
 const promptInput = document.querySelector("#prompt");
@@ -33,6 +39,7 @@ const keyStatus = document.querySelector("#key-status");
 const clearKeyButton = document.querySelector("#clear-saved-key");
 const resetButton = document.querySelector("#reset-settings");
 const permissionList = document.querySelector("#permission-list");
+const glossaryEditor = createGlossaryEditor(document, chrome, globalThis.navigator?.locks);
 let previousProvider = DEFAULT_SETTINGS.provider;
 let activeConnectionCheck = null;
 let savedSettings = null;
@@ -74,7 +81,7 @@ function setProvider(id) {
 
 function formSettings() {
   const provider = selectedProvider();
-  const authType = provider === "custom" ? authTypeInput.value : DEFAULT_AUTH_TYPE;
+  const authType = provider === "custom" ? authTypeInput.value : defaultAuthTypeForProvider(provider);
   return {
     provider,
     endpoint: endpointInput.value.trim(),
@@ -93,16 +100,30 @@ function renderKeyStatus() {
   const claude = draft.provider === "anthropic";
   claudeWorkspace.hidden = !claude;
   apiKeyField.hidden = draft.authType === "none";
-  endpointInput.placeholder = providerById(draft.provider)?.endpoint || "https://example.com/v1/chat/completions";
-  if (claude) endpointHelp.textContent = "填写以 /v1/messages 结尾的 Claude Messages 接口地址。";
-  else if (draft.provider === "gemini") endpointHelp.textContent = "填写 Gemini API 基础地址，以 /v1beta 或 /v1 结尾。模型 ID 在下方填写。";
-  else if (draft.provider === "custom") endpointHelp.textContent = "填写服务的完整 Chat Completions 请求地址。自定义接口可使用不同路径。";
-  else endpointHelp.textContent = "填写完整的 Chat Completions 接口地址。仅本机服务可使用 HTTP。";
-  if (draft.apiKey) keyStatus.textContent = "将使用新填写的密钥；保存后才写入本机。";
-  else if (canReuseSavedKey(draft, savedSettings)) keyStatus.textContent = "此服务已有保存的密钥；留空即可沿用。";
-  else if (savedSettings?.apiKey) keyStatus.textContent = "服务、接口或认证方式已更改，请填写新的 API Key。";
-  else keyStatus.textContent = "尚无已保存的密钥，请填写 API Key。";
+  if (draft.apiKey) keyStatus.textContent = localize('typedKeyHelp', "将使用新填写的密钥；保存后才写入本机。");
+  else if (canReuseSavedKey(draft, savedSettings)) keyStatus.textContent = localize('reuseKeyHelp', "此服务已有保存的密钥；留空即可沿用。");
+  else if (savedSettings?.apiKey) keyStatus.textContent = localize('changedEndpointKey', "服务、接口或认证方式已更改，请填写新的 API Key。");
+  else keyStatus.textContent = localize('missingSavedKey', "尚无已保存的密钥，请填写 API Key。");
   clearKeyButton.disabled = operationBusy || !savedSettings?.apiKey;
+}
+
+function renderServiceFields() {
+  const provider = selectedProvider();
+  const isAzure = provider === AZURE_OPENAI_PROVIDER;
+  endpointLabel.textContent = isAzure ? localize('azureEndpointLabel', "Azure 资源地址") : localize('endpointLabel', "接口地址");
+  endpointInput.placeholder = isAzure
+    ? "https://your-resource.openai.azure.com"
+    : providerById(provider)?.endpoint || "https://example.com/v1/chat/completions";
+  endpointHelp.textContent = {
+    [AZURE_OPENAI_PROVIDER]: localize('azureEndpointHelp', "填写 Azure 资源的 HTTPS 地址，也可使用 /openai/v1 或完整的 Chat Completions v1 地址。"),
+    anthropic: localize('claudeEndpointHelp', "填写以 /v1/messages 结尾的 Claude Messages 接口地址。"),
+    gemini: localize('geminiEndpointHelp', "填写 Gemini API 基础地址，以 /v1beta 或 /v1 结尾。模型 ID 在下方填写。"),
+    custom: localize('customEndpointHelp', "填写服务的完整 Chat Completions 请求地址。自定义接口可使用不同路径。"),
+  }[provider] ?? localize('endpointHelp', "填写完整的 Chat Completions 接口地址。仅本机服务可使用 HTTP。");
+  apiKeyLabel.textContent = isAzure ? localize('azureKeyLabel', "Azure 资源 API Key") : "API Key";
+  modelLabel.textContent = isAzure ? localize('azureDeploymentName', "部署名称") : localize('modelIdLabel', "模型 ID");
+  modelInput.placeholder = isAzure ? localize('azureModelPlaceholder', "填写 Azure 部署名称") : localize('serviceModelPlaceholder', "填写服务支持的模型 ID");
+  modelHelp.hidden = !isAzure;
 }
 
 function fillForm(settings) {
@@ -114,6 +135,7 @@ function fillForm(settings) {
   modelInput.value = settings.model || "";
   targetInput.value = settings.targetLanguage || DEFAULT_SETTINGS.targetLanguage;
   promptInput.value = settings.prompt || "";
+  renderServiceFields();
   renderKeyStatus();
 }
 
@@ -136,8 +158,8 @@ function renderProfileControls() {
 
 function renderProfiles() {
   const options = serviceProfiles.profiles.map(({ id, name }) =>
-    new Option(id === serviceProfiles.activeId ? `${name}（当前）` : name, id));
-  profileSelect.replaceChildren(new Option("新配置", ""), ...options);
+    new Option(id === serviceProfiles.activeId ? localize('activeProfileLabel', `${name}（当前）`, name) : name, id));
+  profileSelect.replaceChildren(new Option(localize('newProfileOption', "新配置"), ""), ...options);
   profileSelect.value = editedProfileId ?? "";
   renderProfileControls();
 }
@@ -175,7 +197,7 @@ function renderPermissions(origins) {
   if (!origins.length) {
     const empty = document.createElement("li");
     empty.className = "permission-empty";
-    empty.textContent = "当前没有已授权的域名。";
+    empty.textContent = localize('noGrantedOrigins', "当前没有已授权的域名。");
     permissionList.append(empty);
     return;
   }
@@ -186,8 +208,8 @@ function renderPermissions(origins) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "permission-revoke";
-    button.textContent = "撤销";
-    button.setAttribute("aria-label", `撤销 ${origin} 的访问权限`);
+    button.textContent = localize('revoke', "撤销");
+    button.setAttribute("aria-label", localize('revokeOriginLabel', `撤销 ${origin} 的访问权限`, origin));
     button.disabled = operationBusy;
     button.addEventListener("click", () => revokeOrigin(origin));
     item.append(label, button);
@@ -207,7 +229,7 @@ async function refreshPermissions() {
       permissionList.replaceChildren();
       const error = document.createElement("li");
       error.className = "permission-empty";
-      error.textContent = "无法读取已授权域名，请重新打开设置页。";
+      error.textContent = localize('permissionReadError', "无法读取已授权域名，请重新打开设置页。");
       permissionList.append(error);
     }
     return null;
@@ -221,12 +243,12 @@ async function revokeOrigin(origin) {
   try {
     const removed = await withSettingsLock(globalThis.navigator?.locks, () => revokeGrantedOrigin(origin, chrome.permissions));
     const origins = await refreshPermissions();
-    if (origins === null) showStatus("无法确认撤销结果，请重新打开设置页检查授权列表。", "error");
-    else if (origins.includes(origin)) showStatus(`撤销 ${origin} 失败，授权仍在。请重试或在 Chrome 扩展管理页处理。`, "error");
-    else if (removed) showStatus(`已撤销 ${origin} 的访问权限。需要时可重新保存或测试连接。`, "success");
-    else showStatus("该域名已没有授权，列表已刷新。", "working");
+    if (origins === null) showStatus(localize('couldNotConfirmRevoke', "无法确认撤销结果，请重新打开设置页检查授权列表。"), "error");
+    else if (origins.includes(origin)) showStatus(localize('revokeOriginFailed', `撤销 ${origin} 失败，授权仍在。请重试或在 Chrome 扩展管理页处理。`, origin), "error");
+    else if (removed) showStatus(localize('revokedOrigin', `已撤销 ${origin} 的访问权限。需要时可重新保存或测试连接。`, origin), "success");
+    else showStatus(localize('originAlreadyRevoked', "该域名已没有授权，列表已刷新。"), "working");
   } catch (error) {
-    showSettingsFailure(error, "撤销失败，请检查浏览器权限并重试。");
+    showSettingsFailure(error, localize('permissionRevokeError', "撤销失败，请检查浏览器权限并重试。"));
     await refreshPermissions();
   } finally {
     setBusy(false);
@@ -242,7 +264,7 @@ function showStatus(message, tone, { connectionResult = false, offerSave = false
 }
 
 function matchesConfig(config, candidate) {
-  return Boolean(candidate && (config.authType ?? DEFAULT_AUTH_TYPE) === (candidate.authType ?? DEFAULT_AUTH_TYPE)
+  return Boolean(candidate && (config.authType ?? defaultAuthTypeForProvider(config.provider)) === (candidate.authType ?? defaultAuthTypeForProvider(candidate.provider))
     && (config.workspaceId ?? "") === (candidate.workspaceId ?? "")
     && Object.entries(config).every(([key, value]) => key === "authType" || candidate[key] === value));
 }
@@ -258,14 +280,14 @@ function setBusy(busy, mode = "save") {
   for (const field of form.querySelectorAll('input:not([type="hidden"]), textarea, select')) {
     field.disabled = busy && mode !== "test";
   }
-  saveButton.querySelector("span:first-child").textContent = busy && mode === "save" ? "请稍候…" : "保存配置";
-  testButton.querySelector(".test-label").textContent = busy && mode === "test" ? "取消检测" : busy ? "请稍候…" : "测试连接";
+  saveButton.querySelector("span:first-child").textContent = busy && mode === "save" ? localize('working', "请稍候…") : localize('saveSettings', "保存配置");
+  testButton.querySelector(".test-label").textContent = busy && mode === "test" ? localize('cancelConnectionCheck', "取消检测") : busy ? localize('working', "请稍候…") : localize('testConnection', "测试连接");
   testButton.dataset.testing = String(busy && mode === "test");
   renderKeyStatus();
   renderProfileControls();
 }
 
-function cancelConnectionCheck(message = "连接检测已取消。") {
+function cancelConnectionCheck(message = localize('connectionCheckCancelled', "连接检测已取消。")) {
   if (!activeConnectionCheck) return;
   const check = activeConnectionCheck;
   activeConnectionCheck = null;
@@ -276,12 +298,12 @@ function cancelConnectionCheck(message = "连接检测已取消。") {
 
 function validationError(error) {
   const message = error?.message || String(error);
-  if (/配置名称/.test(message)) profileName.focus();
-  else if (/认证方式/.test(message) && !customAuthentication.hidden) authTypeInput.focus();
-  else if (/工作区 ID/.test(message) && !claudeWorkspace.hidden) workspaceIdInput.focus();
+  if (/profile name|配置名称/i.test(message)) profileName.focus();
+  else if (/authentication method|认证方式/i.test(message) && !customAuthentication.hidden) authTypeInput.focus();
+  else if (/workspace ID|工作区 ID/i.test(message) && !claudeWorkspace.hidden) workspaceIdInput.focus();
   else if (/invalid url|endpoint|https|接口/i.test(message)) endpointInput.focus();
   else if (/api.?key/i.test(message)) apiKeyInput.focus();
-  else if (/model|模型/i.test(message)) modelInput.focus();
+  else if (/model|deployment name|模型|部署名称/i.test(message)) modelInput.focus();
   return message;
 }
 
@@ -322,19 +344,19 @@ activateProfileButton.addEventListener("click", async () => {
   const origin = profileOrigin(profile);
   if (operationBusy || !origin || profile.id === serviceProfiles.activeId) return;
   setBusy(true, "manage");
-  showStatus("正在切换当前 AI 配置…", "working");
+  showStatus(localize('switchingProfile', "正在切换当前 AI 配置…"), "working");
   try {
     if (!await chrome.permissions.request({ origins: [origin] })) {
-      showStatus("未获得该服务的访问权限。配置未切换。", "error");
+      showStatus(localize('switchProfileDenied', "未获得该服务的访问权限。配置未切换。"), "error");
       return;
     }
     const { state } = await activateServiceProfile({
       profileId: profile.id, expectedOrigin: origin, ...settingsEnvironment(),
     });
     applyProfiles(state);
-    showStatus("已切换当前 AI 配置。", "success");
+    showStatus(localize('profileActivated', "已切换当前 AI 配置。"), "success");
   } catch (error) {
-    showSettingsFailure(error, "切换配置失败，请检查浏览器存储和权限后重试。");
+    showSettingsFailure(error, localize('profileSwitchFailed', "切换配置失败，请检查浏览器存储和权限后重试。"));
   } finally {
     await refreshPermissions();
     setBusy(false);
@@ -343,14 +365,14 @@ activateProfileButton.addEventListener("click", async () => {
 
 deleteProfileButton.addEventListener("click", async () => {
   const profile = editedProfile();
-  if (operationBusy || !profile || !window.confirm(`确定删除配置「${profile.name}」和它的密钥吗？`)) return;
+  if (operationBusy || !profile || !window.confirm(localize('confirmDeleteProfile', `确定删除配置「${profile.name}」和它的密钥吗？`, profile.name))) return;
   setBusy(true, "manage");
   try {
     const { state, cleanupFailed } = await deleteServiceProfile({ profileId: profile.id, ...settingsEnvironment() });
     applyProfiles(state, state.activeId);
-    showStatus(cleanupFailed ? "配置已删除，但部分域名权限未能撤销。" : "配置已删除。", cleanupFailed ? "error" : "success");
+    showStatus(cleanupFailed ? localize('profileDeletedCleanupFailed', "配置已删除，但部分域名权限未能撤销。") : localize('profileDeleted', "配置已删除。"), cleanupFailed ? "error" : "success");
   } catch (error) {
-    showSettingsFailure(error, "删除配置失败，请检查浏览器存储后重试。");
+    showSettingsFailure(error, localize('deleteProfileFailed', "删除配置失败，请检查浏览器存储后重试。"));
   } finally {
     await refreshPermissions();
     setBusy(false);
@@ -369,6 +391,7 @@ providerList.addEventListener("change", (event) => {
   workspaceIdInput.value = "";
   apiKeyInput.value = "";
   previousProvider = event.target.value;
+  renderServiceFields();
   renderKeyStatus();
   status.hidden = true;
 });
@@ -384,7 +407,7 @@ authTypeInput.addEventListener("change", () => {
 function onFormChanged(event) {
   if (event.target === profileSelect) return;
   renderKeyStatus();
-  if (activeConnectionCheck) cancelConnectionCheck("配置已修改，连接检测已取消。请重新检测。");
+  if (activeConnectionCheck) cancelConnectionCheck(localize('connectionDraftChanged', "配置已修改，连接检测已取消。请重新检测。"));
   else status.hidden = true;
 }
 form.addEventListener("input", onFormChanged);
@@ -394,7 +417,7 @@ form.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (operationBusy) return;
   if (typeof globalThis.navigator?.locks?.request !== "function") {
-    showStatus("当前浏览器不支持安全的多页面设置操作，请升级 Chrome 后重试。", "error");
+    showStatus(localize('settingsLockUnsupported', "当前浏览器不支持安全的多页面设置操作，请升级 Chrome 后重试。"), "error");
     return;
   }
   const draft = formSettings();
@@ -403,7 +426,7 @@ form.addEventListener("submit", async (event) => {
   let config;
   let permissionPromise;
   try {
-    if (!name || name.length > 48) throw new Error("请输入 1 到 48 个字符的配置名称。");
+    if (!name || name.length > 48) throw new Error(localize('profileNameLength', "请输入 1 到 48 个字符的配置名称。"));
     config = resolveSettings(draft, savedSettings);
     permissionPromise = requestEndpointPermission(config);
   } catch (error) {
@@ -412,10 +435,10 @@ form.addEventListener("submit", async (event) => {
   }
 
   setBusy(true);
-  showStatus("正在申请访问此 AI 服务的权限…", "working");
+  showStatus(localize('requestingServiceOrigin', "正在申请访问此 AI 服务的权限…"), "working");
   try {
     if (!(await permissionPromise)) {
-      showStatus("未获得该服务的访问权限。请允许访问后再保存。", "error");
+      showStatus(localize('savePermissionDenied', "未获得该服务的访问权限。请允许访问后再保存。"), "error");
       return;
     }
     const result = await saveSettingsWithPermission({
@@ -423,10 +446,10 @@ form.addEventListener("submit", async (event) => {
     });
     applyProfiles(result.state, result.profile.id);
     showStatus(result.cleanupFailed
-      ? "配置已保存，但旧域名权限未能撤销。请在下方授权列表中手动处理。"
-      : "配置已保存。", result.cleanupFailed ? "error" : "success");
+      ? localize('savedCleanupFailed', "配置已保存，但旧域名权限未能撤销。请在下方授权列表中手动处理。")
+      : localize('settingsSaved', "配置已保存。"), result.cleanupFailed ? "error" : "success");
   } catch (error) {
-    showSettingsFailure(error, "保存失败，请检查浏览器存储和权限后重试。新申请的域名权限可能仍保留在下方列表中。");
+    showSettingsFailure(error, localize('settingsSaveError', "保存失败，请检查浏览器存储和权限后重试。新申请的域名权限可能仍保留在下方列表中。"));
   } finally {
     await refreshPermissions();
     setBusy(false);
@@ -455,18 +478,18 @@ testButton.addEventListener("click", async () => {
   const check = { controller: new AbortController() };
   activeConnectionCheck = check;
   setBusy(true, "test");
-  showStatus("正在检测连接，将发送一小段示例文字；可点击「取消检测」。", "working");
+  showStatus(localize('testingConnection', "正在检测连接，将发送一小段示例文字；可点击「取消检测」。"), "working");
   try {
     if (!(await permissionPromise)) {
       if (activeConnectionCheck !== check) return;
-      showStatus("未获得该服务的访问权限。请允许访问后重试。", "error");
+      showStatus(localize('testPermissionDenied', "未获得该服务的访问权限。请允许访问后重试。"), "error");
       return;
     }
     if (activeConnectionCheck !== check) return;
     const current = await readSavedProfile(profileId);
     if (activeConnectionCheck !== check) return;
     if (profileId && !current) {
-      showStatus("这套配置已被删除，请重新选择或新建配置。", "working");
+      showStatus(localize('editedProfileDeleted', "这套配置已被删除，请重新选择或新建配置。"), "working");
       return;
     }
     config = resolveSettings(draft, current?.settings);
@@ -481,19 +504,19 @@ testButton.addEventListener("click", async () => {
       // The draft may have depended on a saved key that changed during the check.
     }
     if ((profileId && !latestSaved) || !matchesConfig(config, latestDraft)) {
-      showStatus("已收到示例译文，但本机配置在检测期间发生变化，请重新检测。", "working");
+      showStatus(localize('connectionResultStale', "已收到示例译文，但本机配置在检测期间发生变化，请重新检测。"), "working");
       return;
     }
     const alreadySaved = latestSaved?.name === name && matchesConfig(config, latestSaved.settings);
     const sample = translation.length > 120 ? `${translation.slice(0, 120)}…` : translation;
-    const resultMessage = `连接正常，已收到有效译文（${(durationMs / 1000).toFixed(1)} 秒）。示例译文：「${sample}」。`;
-    showStatus(resultMessage + (alreadySaved ? "当前配置已保存。" : "当前草稿尚未保存。"), "success", {
+    const resultMessage = localize('profileConnectionSuccess', `连接正常，已收到有效译文（${(durationMs / 1000).toFixed(1)} 秒）。示例译文：「${sample}」。`, (durationMs / 1000).toFixed(1), sample);
+    showStatus(resultMessage + (alreadySaved ? localize('connectionProfileSaved', "当前配置已保存。") : localize('connectionProfileUnsaved', "当前草稿尚未保存。")), "success", {
       connectionResult: true, offerSave: !alreadySaved,
     });
   } catch (error) {
     if (activeConnectionCheck !== check) return;
-    const message = error instanceof Error ? error.message : "请检查配置后重试。";
-    showStatus(`连接检测失败：${message}`, "error");
+    const message = error instanceof Error ? error.message : localize('connectionRetry', "请检查配置后重试。");
+    showStatus(localize('connectionFailed', `连接检测失败：${message}`, message), "error");
   } finally {
     await refreshPermissions();
     if (activeConnectionCheck === check) {
@@ -512,15 +535,15 @@ clearKeyButton.addEventListener("click", async () => {
     applyProfiles(outcome.state);
     if (outcome.noKey) {
       apiKeyInput.value = "";
-      showStatus("当前没有已保存的 API Key。", "working");
+      showStatus(localize('noKeyToClear', "当前没有已保存的 API Key。"), "working");
       return;
     }
     apiKeyInput.value = "";
     showStatus(outcome.cleanupFailed
-      ? "密钥已清除，但服务域名权限未能撤销。请在下方列表中手动处理。"
-      : "已清除本机保存的密钥和当前输入。", outcome.cleanupFailed ? "error" : "success");
+      ? localize('clearedKeyCleanupFailed', "密钥已清除，但服务域名权限未能撤销。请在下方列表中手动处理。")
+      : localize('clearedKey', "已清除本机保存的密钥和当前输入。"), outcome.cleanupFailed ? "error" : "success");
   } catch (error) {
-    showSettingsFailure(error, "清除密钥失败，请检查浏览器存储后重试。");
+    showSettingsFailure(error, localize('clearKeyFailed', "清除密钥失败，请检查浏览器存储后重试。"));
   } finally {
     await refreshPermissions();
     setBusy(false);
@@ -528,17 +551,17 @@ clearKeyButton.addEventListener("click", async () => {
 });
 
 resetButton.addEventListener("click", async () => {
-  if (operationBusy || !window.confirm("确定重置 AI 服务配置、清除密钥并撤销不再使用的域名授权吗？")) return;
+  if (operationBusy || !window.confirm(localize('confirmReset', "确定重置 AI 服务配置、清除密钥并撤销不再使用的域名授权吗？"))) return;
   cancelConnectionCheck();
   setBusy(true, "manage");
   try {
     const result = await resetServiceProfiles(settingsEnvironment());
     applyProfiles({ activeId: null, profiles: [] }, null);
     showStatus(result.cleanupFailed
-      ? "配置已重置，但部分域名权限未能撤销。请在下方列表中手动处理。"
-      : "AI 服务配置和密钥已重置，已撤销不再使用的域名授权。", result.cleanupFailed ? "error" : "success");
+      ? localize('resetCleanupFailed', "配置已重置，但部分域名权限未能撤销。请在下方列表中手动处理。")
+      : localize('settingsReset', "AI 服务配置和密钥已重置，已撤销不再使用的域名授权。"), result.cleanupFailed ? "error" : "success");
   } catch (error) {
-    showSettingsFailure(error, "重置失败，原配置仍保留。请检查浏览器存储后重试。");
+    showSettingsFailure(error, localize('settingsResetFailed', "重置失败，原配置仍保留。请检查浏览器存储后重试。"));
   } finally {
     await refreshPermissions();
     setBusy(false);
@@ -556,12 +579,12 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
     const editedChanged = Boolean(old && (old.name !== next?.name || !matchesConfig(old.settings, next?.settings)));
     applyProfiles(state);
     if (editedChanged && activeConnectionCheck) {
-      cancelConnectionCheck("本机配置已更新，请重新检测当前表单。");
+      cancelConnectionCheck(localize('profileChangedRetest', "本机配置已更新，请重新检测当前表单。"));
     } else if (editedChanged && !status.hidden && status.dataset.connectionResult === "true") {
-      showStatus("本机配置已更新，请重新检测当前表单。", "working");
+      showStatus(localize('profileChangedRetest', "本机配置已更新，请重新检测当前表单。"), "working");
     }
   } catch {
-    if (revision === profileRevision) showStatus("无法读取本机设置，请重新打开设置页。", "error");
+    if (revision === profileRevision) showStatus(localize('settingsReadFailed', "无法读取本机设置，请重新打开设置页。"), "error");
   }
 });
 
@@ -575,7 +598,7 @@ async function initialize() {
     const state = await readServiceProfiles(chrome.storage.local);
     if (revision === profileRevision) applyProfiles(state, state.activeId);
   } catch {
-    showStatus("无法读取本机设置，请重新打开设置页。", "error");
+    showStatus(localize('settingsReadFailed', "无法读取本机设置，请重新打开设置页。"), "error");
   } finally {
     await refreshPermissions();
     setBusy(false);
@@ -585,4 +608,6 @@ async function initialize() {
 chrome.permissions.onAdded?.addListener(() => { void refreshPermissions(); });
 chrome.permissions.onRemoved?.addListener(() => { void refreshPermissions(); });
 
+localizeDocument();
 initialize();
+void glossaryEditor.initialize();

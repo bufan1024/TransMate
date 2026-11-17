@@ -226,6 +226,65 @@ test('waiting for selection consumption cannot start a duplicate manual request'
   }
 });
 
+
+test('a completed card handoff replaces the current text without a provider request', async () => {
+  const app = await mountPanel({ delayedWindow: true, snapshotOverride: {} });
+  try {
+    const id = app.emit({
+      ...selection(7, 'completed-card', 'It stopped raining.', 100),
+      result: { translation: '雨が止んだ。', targetLanguageId: 'ja', targetLanguage: '日语' },
+    });
+    app.releaseWindow();
+    await app.flush();
+    assert.equal(app.element('#source-text').value, 'It stopped raining.');
+    assert.equal(app.element('#result-text').textContent, '雨が止んだ。');
+    assert.equal(app.element('#target-language').value, 'ja');
+    assert.equal(app.element('#copy-button').disabled, false);
+    assert.equal(app.store.has(id), false);
+    assert.deepEqual(app.requests, []);
+  } finally {
+    app.restore();
+  }
+});
+
+test('an exported result that finishes consumption late cannot overwrite a newer side panel selection', async () => {
+  const key = selectionStorageKey(7, 'old-card');
+  const app = await mountPanel({ delayedRemovalKey: key });
+  try {
+    app.emit({
+      ...selection(7, 'old-card', 'Old', 100),
+      result: { translation: '旧译文', targetLanguageId: 'en', targetLanguage: '英语' },
+    });
+    await app.flush();
+    app.emit(selection(7, 'new', 'New', 200));
+    await app.flush();
+    app.releaseRemoval();
+    await app.flush();
+    assert.equal(app.element('#source-text').value, 'New');
+    assert.equal(app.element('#result-text').textContent, '译:New');
+    assert.deepEqual(app.requests.map(({ text }) => text), ['New']);
+  } finally {
+    app.restore();
+  }
+});
+
+
+test('an incomplete card handoff is discarded without retranslating its source', async () => {
+  const app = await mountPanel();
+  try {
+    const key = app.emit({
+      ...selection(7, 'incomplete-card', 'Text that was already sent', 100),
+      result: { translation: '译文', targetLanguageId: 'ja' },
+    });
+    await app.flush();
+    assert.deepEqual(app.requests, []);
+    assert.equal(app.element('#source-text').value, '');
+    assert.equal(app.store.has(key), false);
+  } finally {
+    app.restore();
+  }
+});
+
 test('the original text can be translated manually after the selection expires during initial setup', async (t) => {
   let now = 1_800_000_000_000;
   t.mock.method(Date, 'now', () => now);

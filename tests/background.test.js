@@ -56,7 +56,12 @@ function fakeChrome({
           calls.accessLevels.push(value);
           if (storageAccessError) throw new Error('access level denied');
         },
-        get: async () => ({ settings, pageTranslationSites }),
+        get: async (keys) => {
+          const stored = { settings, pageTranslationSites };
+          if (keys == null) return stored;
+          const requested = Array.isArray(keys) ? keys : [keys];
+          return Object.fromEntries(requested.filter((key) => key in stored).map((key) => [key, stored[key]]));
+        },
       },
       session: {
         set: async (value) => { calls.writes.push(value); Object.assign(sessionState, value); },

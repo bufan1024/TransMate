@@ -15,7 +15,7 @@
     "message": "API Key 不能包含控制字符。"
   },
   "authorizedDomains": {
-    "message": "已授权域名"
+    "message": "已授权的域名"
   },
   "authorizedServiceDomains": {
     "message": "已授权的服务域名"
@@ -30,7 +30,7 @@
     "message": "取消翻译"
   },
   "cannotCheckGrant": {
-    "message": "无法确认服务域名授权，请重新点击保存并允许授权。"
+    "message": "无法确认服务域名授权，请重试并允许授权。"
   },
   "cannotDisplayCard": {
     "message": "无法显示翻译浮层"
@@ -62,7 +62,7 @@
     "message": "翻译等待超时，请重试。"
   },
   "changedEndpointKey": {
-    "message": "服务或接口已更改，请填写新的 API Key。"
+    "message": "服务、接口或认证方式已更改，请填写新的 API Key。"
   },
   "characterCount": {
     "message": "$ARG1$ 字",
@@ -121,7 +121,7 @@
     "message": "先配置 AI 服务，即可开始翻译。"
   },
   "confirmReset": {
-    "message": "确定重置全部配置、清除密钥并撤销已授权域名吗？"
+    "message": "确定重置 AI 服务配置、清除密钥并撤销不再使用的域名授权吗？"
   },
   "connectAI": {
     "message": "连接你的 AI 服务"
@@ -289,7 +289,7 @@
     "message": "使用步骤"
   },
   "grantChanged": {
-    "message": "服务域名授权已变化，请重新点击保存并允许授权。"
+    "message": "服务域名授权已变化，请重试并允许授权。"
   },
   "heroFirst": {
     "message": "把翻译，"
@@ -333,10 +333,13 @@
     }
   },
   "invalidCompletion": {
-    "message": "翻译服务返回 $ARG1$，但响应不是有效的 Chat Completions JSON；请检查接口地址和服务兼容性。",
+    "message": "翻译服务返回 $ARG1$，但响应不是有效的 $ARG2$ JSON；请检查接口地址和服务兼容性。",
     "placeholders": {
       "arg1": {
         "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
       }
     }
   },
@@ -356,7 +359,7 @@
     "message": "AI 服务返回的流式响应格式有误，请重试或更换模型。"
   },
   "keyNeeded": {
-    "message": "请填写当前服务的 API Key；留空只可沿用同一服务和完整接口地址的已保存密钥。"
+    "message": "请填写当前服务的 API Key；留空只可沿用服务、完整接口地址与认证方式均相同的已保存密钥。"
   },
   "langChineseSimplified": {
     "message": "简体中文"
@@ -398,21 +401,27 @@
     "message": "zh-CN"
   },
   "missingCompletion": {
-    "message": "翻译服务返回 $ARG1$，但未返回有效$ARG2$；请确认模型支持 Chat Completions 响应格式。",
+    "message": "翻译服务返回 $ARG1$，但未返回有效$ARG2$；请确认模型支持 $ARG3$ 响应格式。",
     "placeholders": {
       "arg1": {
         "content": "$1"
       },
       "arg2": {
         "content": "$2"
+      },
+      "arg3": {
+        "content": "$3"
       }
     }
   },
   "missingProviderModel": {
-    "message": "$ARG1$接口地址或模型未找到，请核对 Chat Completions 地址和模型 ID。",
+    "message": "$ARG1$接口地址或模型未找到，请核对 $ARG2$ 地址和模型 ID。",
     "placeholders": {
       "arg1": {
         "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
       }
     }
   },
@@ -429,7 +438,7 @@
     "message": "填写新的 API Key"
   },
   "noGrantedOrigins": {
-    "message": "当前没有已授权的服务域名。"
+    "message": "当前没有已授权的域名。"
   },
   "noKeyToClear": {
     "message": "当前没有已保存的 API Key。"
@@ -646,7 +655,7 @@
     "message": "撤销"
   },
   "revokeHelp": {
-    "message": "撤销当前服务的访问权限后，需重新保存或测试连接才能继续翻译。"
+    "message": "撤销域名授权会影响使用该域名的服务和站点自动翻译。重新切换配置、保存或测试连接时可以再次授权。"
   },
   "revokeOriginFailed": {
     "message": "撤销 $ARG1$ 失败，授权仍在。请重试或在 Chrome 扩展管理页处理。",
@@ -708,7 +717,7 @@
     "message": "无法连接到 AI 服务。请检查接口地址、网络和网站访问权限。"
   },
   "servicePresetsHelp": {
-    "message": "预设会填写接口地址。你仍可修改地址，或选择自定义 OpenAI 兼容接口。"
+    "message": "选择 AI 服务，也可填写自定义 OpenAI 兼容接口。"
   },
   "serviceTimeout": {
     "message": "AI 服务响应超时，请检查服务状态后重试。"
@@ -732,7 +741,7 @@
     "message": "无法读取本机设置，请重新打开设置页。"
   },
   "settingsReset": {
-    "message": "本机配置和密钥已重置，已撤销授权域名。"
+    "message": "AI 服务配置和密钥已重置，已撤销不再使用的域名授权。"
   },
   "settingsResetFailed": {
     "message": "重置失败，原配置仍保留。请检查浏览器存储后重试。"
@@ -741,7 +750,7 @@
     "message": "保存失败，请检查浏览器存储和权限后重试。新申请的域名权限可能仍保留在下方列表中。"
   },
   "settingsSaved": {
-    "message": "配置已保存。现在可以在网页中选中文字开始翻译。"
+    "message": "配置已保存。"
   },
   "settingsTab": {
     "message": "SETTINGS / 配置"
@@ -912,5 +921,807 @@
   },
   "wrongPageParagraphs": {
     "message": "译文与网页段落不匹配，请重新翻译。"
+  },
+  "azureEndpointLabel": {
+    "message": "Azure 资源地址"
+  },
+  "azureEndpointHelp": {
+    "message": "填写 Azure 资源的 HTTPS 地址，也可使用 /openai/v1 或完整的 Chat Completions v1 地址。"
+  },
+  "claudeEndpointHelp": {
+    "message": "填写以 /v1/messages 结尾的 Claude Messages 接口地址。"
+  },
+  "geminiEndpointHelp": {
+    "message": "填写 Gemini API 基础地址，以 /v1beta 或 /v1 结尾。模型 ID 在下方填写。"
+  },
+  "customEndpointHelp": {
+    "message": "填写服务的完整 Chat Completions 请求地址。自定义接口可使用不同路径。"
+  },
+  "azureKeyLabel": {
+    "message": "Azure 资源 API Key"
+  },
+  "azureDeploymentName": {
+    "message": "部署名称"
+  },
+  "azureModelPlaceholder": {
+    "message": "填写 Azure 部署名称"
+  },
+  "newProfileOption": {
+    "message": "新配置"
+  },
+  "switchingProfile": {
+    "message": "正在切换当前 AI 配置…"
+  },
+  "switchProfileDenied": {
+    "message": "未获得该服务的访问权限。配置未切换。"
+  },
+  "profileActivated": {
+    "message": "已切换当前 AI 配置。"
+  },
+  "profileSwitchFailed": {
+    "message": "切换配置失败，请检查设置与域名授权。"
+  },
+  "profileDeletedCleanupFailed": {
+    "message": "配置已删除，但部分域名权限未能撤销。"
+  },
+  "profileDeleted": {
+    "message": "配置已删除。"
+  },
+  "deleteProfileFailed": {
+    "message": "删除配置失败，请检查浏览器存储后重试。"
+  },
+  "profileNameLength": {
+    "message": "请输入 1 到 48 个字符的配置名称。"
+  },
+  "editedProfileDeleted": {
+    "message": "这套配置已被删除，请重新选择或新建配置。"
+  },
+  "connectionResultStale": {
+    "message": "已收到示例译文，但本机配置在检测期间发生变化，请重新检测。"
+  },
+  "connectionProfileSaved": {
+    "message": "当前配置已保存。"
+  },
+  "connectionProfileUnsaved": {
+    "message": "当前草稿尚未保存。"
+  },
+  "profileChangedRetest": {
+    "message": "本机配置已更新，请重新检测当前表单。"
+  },
+  "activeProfileLabel": {
+    "message": "$ARG1$（当前）",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "confirmDeleteProfile": {
+    "message": "确定删除配置「$ARG1$」和它的密钥吗？",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "profileConnectionSuccess": {
+    "message": "连接正常，已收到有效译文（$ARG1$ 秒）。示例译文：「$ARG2$」。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "azureEndpointHost": {
+    "message": "请填写 Azure 资源的 HTTPS 接口地址（openai.azure.com 或 services.ai.azure.com）。"
+  },
+  "azureEndpointPath": {
+    "message": "请填写 Azure 资源根地址、/openai/v1 或完整的 /openai/v1/chat/completions 接口地址。"
+  },
+  "geminiEndpointPath": {
+    "message": "请输入以 /v1 或 /v1beta 结尾的 Gemini API 基础地址。"
+  },
+  "invalidAuthType": {
+    "message": "请选择服务支持的认证方式。"
+  },
+  "noKeyLocalOnly": {
+    "message": "无需密钥只适用于 localhost 或 127.0.0.1 的 HTTP 或 HTTPS 接口。"
+  },
+  "invalidGeminiModel": {
+    "message": "请填写 Gemini 模型 ID，可包含 models/ 前缀。"
+  },
+  "invalidClaudeWorkspace": {
+    "message": "请填写有效的 Claude 工作区 ID。"
+  },
+  "invalidClaudeWorkspacePrefix": {
+    "message": "请填写以 wrkspc_ 开头的 Claude 工作区 ID。"
+  },
+  "providerEndpointRequired": {
+    "message": "请填写完整的 $ARG1$ 接口地址。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "defaultProfileName": {
+    "message": "默认配置"
+  },
+  "profileCatalogReadFailed": {
+    "message": "无法读取本机的服务配置，请检查配置或重置。"
+  },
+  "profileRemoved": {
+    "message": "该配置已被删除。请选择其他配置或新建。"
+  },
+  "profileIncomplete": {
+    "message": "请先到设置中为这套配置补齐服务信息和 API Key。"
+  },
+  "activateOriginChanged": {
+    "message": "服务域名已变更，请重新选择配置并授权。"
+  },
+  "azureHttpFailure": {
+    "message": "请核对 Azure 资源地址、部署名称，并确认该部署支持 Chat Completions。"
+  },
+  "missingStreamTranslation": {
+    "message": "AI 服务未返回有效译文，请重试或更换模型。"
+  },
+  "endpointOriginMismatch": {
+    "message": "无法在已授权域名上构建 AI 服务请求。"
+  },
+  "aiProfiles": {
+    "message": "AI 配置"
+  },
+  "serviceProfilesLabel": {
+    "message": "本机服务配置"
+  },
+  "newProfile": {
+    "message": "新建配置"
+  },
+  "setActiveProfile": {
+    "message": "设为当前"
+  },
+  "deleteProfile": {
+    "message": "删除配置"
+  },
+  "profileName": {
+    "message": "配置名称"
+  },
+  "authTypeLabel": {
+    "message": "认证方式"
+  },
+  "xApiKeyHeader": {
+    "message": "x-api-key 请求头"
+  },
+  "apiKeyHeader": {
+    "message": "api-key 请求头"
+  },
+  "keylessLocalService": {
+    "message": "本机服务无需密钥"
+  },
+  "keylessLocalHelp": {
+    "message": "无需密钥仅适用于 localhost 和 127.0.0.1。"
+  },
+  "claudeWorkspaceLabel": {
+    "message": "Claude 工作区 ID"
+  },
+  "whenKeyRequires": {
+    "message": "按密钥范围填写"
+  },
+  "claudeWorkspaceHelp": {
+    "message": "组织范围的 API Key 需要工作区 ID。仅限单个工作区的密钥可留空。"
+  },
+  "azureDeploymentHelp": {
+    "message": "填写 Azure 门户中该模型的部署名称。"
+  },
+  "saveTestedProfile": {
+    "message": "保存已测试配置"
+  },
+  "resetServiceSettings": {
+    "message": "重置服务配置"
+  },
+  "siteTranslationTitle": {
+    "message": "站点自动翻译"
+  },
+  "siteTranslationHelp": {
+    "message": "默认关闭。启用后，新加载的站点页面会将阅读位置附近的正文发送给你配置的 AI 服务。偏好仅应用于所填网址的协议、主机与端口，Chrome 的主机权限覆盖同一主机的端口。"
+  },
+  "siteTranslationAddress": {
+    "message": "站点地址"
+  },
+  "enableSiteTranslation": {
+    "message": "授权并启用"
+  },
+  "enabledSiteTranslationList": {
+    "message": "已启用自动翻译的站点"
+  },
+  "glossaryTitle": {
+    "message": "术语库"
+  },
+  "glossaryNote": {
+    "message": "在本机保存固定译法。启用后，只向 AI 服务发送当前翻译匹配的术语。"
+  },
+  "glossaryEnable": {
+    "message": "启用术语库"
+  },
+  "glossarySource": {
+    "message": "原文术语"
+  },
+  "glossaryTarget": {
+    "message": "固定译法"
+  },
+  "glossaryLanguage": {
+    "message": "适用目标语言"
+  },
+  "glossaryAdd": {
+    "message": "添加术语"
+  },
+  "glossaryCancel": {
+    "message": "取消编辑"
+  },
+  "glossaryImport": {
+    "message": "导入 JSON"
+  },
+  "glossaryExport": {
+    "message": "导出 JSON"
+  },
+  "glossaryClear": {
+    "message": "清空术语库"
+  },
+  "glossarySavedList": {
+    "message": "已保存术语"
+  },
+  "glossarySave": {
+    "message": "保存术语"
+  },
+  "glossaryEmpty": {
+    "message": "还没有固定术语。"
+  },
+  "glossaryEdit": {
+    "message": "编辑"
+  },
+  "glossaryDelete": {
+    "message": "删除"
+  },
+  "glossaryRemoveConflict": {
+    "message": "这条术语已在另一个设置页更改，请重新选择删除。"
+  },
+  "glossaryDeleted": {
+    "message": "术语已删除。"
+  },
+  "glossaryUpdateFailed": {
+    "message": "无法更新术语库，请重试。"
+  },
+  "glossaryEditConflict": {
+    "message": "这条术语已在另一个设置页更改，请重新选择编辑。"
+  },
+  "glossaryTermSaved": {
+    "message": "术语已保存。"
+  },
+  "glossaryTermAdded": {
+    "message": "术语已添加。"
+  },
+  "glossaryEnabled": {
+    "message": "已启用术语库。"
+  },
+  "glossaryDisabled": {
+    "message": "已停用术语库。"
+  },
+  "glossaryConfirmClear": {
+    "message": "确定清空本机术语库中的全部术语吗？"
+  },
+  "glossaryCleared": {
+    "message": "术语库已清空。"
+  },
+  "glossaryFileLarge": {
+    "message": "术语文件过大。"
+  },
+  "glossaryImported": {
+    "message": "术语已导入。"
+  },
+  "glossaryImportError": {
+    "message": "无法读取术语文件。"
+  },
+  "glossaryLoadFailed": {
+    "message": "无法读取本机术语库，请重新打开设置页。"
+  },
+  "glossaryConfirmImport": {
+    "message": "导入 $ARG1$ 条术语并替换本机现有术语？",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "claudeInvalidStream": {
+    "message": "Claude 返回的流式响应格式有误，请重试或检查接口。"
+  },
+  "claudeResultLimited": {
+    "message": "Claude 返回的$ARG1$因长度限制而中断，请缩短原文后重试。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "claudeResultFailed": {
+    "message": "Claude 未能完成此次$ARG1$，请检查内容后重试。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "claudeResultIncomplete": {
+    "message": "Claude 未返回完整的$ARG1$，请重试。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "claudeBusy": {
+    "message": "Claude 服务繁忙，请稍后重试。"
+  },
+  "claudeRateLimit": {
+    "message": "Claude 请求过于频繁，请稍后重试并检查配额。"
+  },
+  "claudeError": {
+    "message": "Claude 响应处理失败，请稍后重试。"
+  },
+  "claudeEarlyStreamEnd": {
+    "message": "Claude 的流式响应提前结束，请重试。"
+  },
+  "claudeHttpFailure": {
+    "message": "请核对 Claude 接口地址、模型 ID 和工作区 ID。"
+  },
+  "geminiInvalidResponse": {
+    "message": "Gemini API 返回的响应格式有误，请检查模型后重试。"
+  },
+  "geminiContentFiltered": {
+    "message": "Gemini 的内容过滤阻止了本次请求，请调整原文或更换模型。"
+  },
+  "geminiError": {
+    "message": "Gemini API 返回错误，请检查服务后重试。"
+  },
+  "geminiUnsupportedLanguage": {
+    "message": "Gemini 模型不支持此次请求的语言，请更换模型。"
+  },
+  "geminiHttpFailure": {
+    "message": "请求参数无效，请核对 Gemini API Key、版本和模型 ID。"
+  },
+  "geminiEarlyStreamEnd": {
+    "message": "Gemini 的流式响应提前结束，请重试。"
+  },
+  "glossaryPhraseLength": {
+    "message": "$ARG1$须为 1–$ARG2$ 字符的单行文本。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "glossaryMaximumEntries": {
+    "message": "术语库最多可保存 $ARG1$ 条术语。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "glossaryIndexedLanguage": {
+    "message": "第 $ARG1$ 条术语的目标语言无效。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "glossaryIndexedSource": {
+    "message": "第 $ARG1$ 条术语的原文",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "glossaryIndexedTarget": {
+    "message": "第 $ARG1$ 条术语的固定译法",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "glossaryDuplicateEntry": {
+    "message": "第 $ARG1$ 条术语的原文和目标语言与另一条术语重复。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "glossaryInvalidJson": {
+    "message": "术语文件必须是有效的 JSON。"
+  },
+  "glossaryInvalidFormat": {
+    "message": "无法识别术语文件格式。请选择 TransMate 导出的文件。"
+  },
+  "openTransMate": {
+    "message": "打开 TransMate"
+  },
+  "autoPageStatus": {
+    "message": "自动翻译 · $ARG1$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "pageRetryUnavailable": {
+    "message": "无法恢复网页翻译，请重新启动翻译。"
+  },
+  "restorePageBilingual": {
+    "message": "恢复双语"
+  },
+  "pageTranslationOnly": {
+    "message": "仅译文"
+  },
+  "pageRetryUnfinished": {
+    "message": "重试未完成段落"
+  },
+  "pageSummarySource": {
+    "message": "来源 $ARG1$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "pageSummaryCurrentPage": {
+    "message": "当前网页"
+  },
+  "pageSummaryCombineBatch": {
+    "message": "正在汇总各部分重点（第 $ARG1$ / $ARG2$ 批）…",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "pageSummaryCombine": {
+    "message": "正在汇总各部分重点…"
+  },
+  "pageSummaryExtractBatch": {
+    "message": "正在提取正文重点（第 $ARG1$ / $ARG2$ 批）…",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "pageSitePermissionChanged": {
+    "message": "网站授权已变更，请重新点击授权并启用。"
+  },
+  "currentPage": {
+    "message": "当前网页"
+  },
+  "translateCurrentPage": {
+    "message": "翻译本页"
+  },
+  "summarizeCurrentPage": {
+    "message": "总结本页"
+  },
+  "retryPageSummary": {
+    "message": "重试总结"
+  },
+  "serviceProfileLabel": {
+    "message": "AI 配置"
+  },
+  "profileSwitchLocks": {
+    "message": "当前浏览器无法安全切换配置，请升级 Chrome。"
+  },
+  "profileSwitchWorking": {
+    "message": "正在切换配置…"
+  },
+  "profileSwitchPermission": {
+    "message": "未获得该服务的访问权限。"
+  },
+  "panelPageNeedsSettings": {
+    "message": "请先在设置中配置 AI 服务。"
+  },
+  "panelPageUnavailableWindow": {
+    "message": "无法确认当前窗口，请重新打开侧栏。"
+  },
+  "panelPageReading": {
+    "message": "正在读取当前网页…"
+  },
+  "panelPageStarted": {
+    "message": "已在网页上启动双语翻译。"
+  },
+  "panelPageStartFailed": {
+    "message": "无法启动网页操作，请从网页右键菜单重试。"
+  },
+  "longTextLimit": {
+    "message": "原文最多支持 $ARG1$ 字符，请缩短后翻译。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "longTextResumePlan": {
+    "message": "已完成 $ARG1$/$ARG2$ 段，继续翻译将发送 $ARG3$ 次请求。费用由 AI 服务决定。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      },
+      "arg3": {
+        "content": "$3"
+      }
+    }
+  },
+  "longTextPlan": {
+    "message": "将按原文顺序分 $ARG1$ 段翻译，共发送 $ARG1$ 次请求。费用由 AI 服务决定。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "resumeLongTranslation": {
+    "message": "继续翻译"
+  },
+  "longTextStopped": {
+    "message": "翻译已停止，已完成 $ARG1$/$ARG2$ 段。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "longTextProgress": {
+    "message": "正在翻译第 $ARG1$/$ARG2$ 段…",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "longTextPartFailed": {
+    "message": "第 $ARG1$/$ARG2$ 段未完成。$ARG3$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      },
+      "arg3": {
+        "content": "$3"
+      }
+    }
+  },
+  "localPdf": {
+    "message": "翻译本地 PDF"
+  },
+  "localPdfHelp": {
+    "message": "先在本机读取文字。选中文本并点击「使用选中文本」后，可在下方确认翻译。PDF 扫描件需要 OCR。"
+  },
+  "chooseLocalPdf": {
+    "message": "选择本地 PDF"
+  },
+  "closePdf": {
+    "message": "关闭文档"
+  },
+  "pdfPageNumber": {
+    "message": "页码"
+  },
+  "pdfExtractedText": {
+    "message": "本页提取的文字"
+  },
+  "pdfUseSelection": {
+    "message": "使用选中文本"
+  },
+  "pdfReadError": {
+    "message": "无法读取 PDF。请确认文件完整，或尝试另一个 PDF。"
+  },
+  "pdfTooLarge": {
+    "message": "PDF 须小于或等于 20 MB。"
+  },
+  "pdfEmptyFile": {
+    "message": "文件为空，请选择有内容的 PDF。"
+  },
+  "pdfInvalidHeader": {
+    "message": "此文件不是 PDF，请选择 PDF 文件。"
+  },
+  "pdfReadTimeout": {
+    "message": "读取 PDF 超时，请选用较小或页数较少的文件。"
+  },
+  "pdfRequiresPassword": {
+    "message": "此 PDF 需要密码，请选择已解锁的本地副本。"
+  },
+  "pdfMinimumChrome": {
+    "message": "本地 PDF 文本读取需要 Chrome 125 或更高版本。"
+  },
+  "pdfOcrNeeded": {
+    "message": "本页没有可提取的文字。扫描件需要 OCR。"
+  },
+  "pdfTextTruncated": {
+    "message": "本页超过预览上限，仅显示开头文字。"
+  },
+  "pdfCancelRead": {
+    "message": "取消读取"
+  },
+  "pdfOpening": {
+    "message": "正在本机打开 PDF…"
+  },
+  "pdfSelectionLimit": {
+    "message": "一次可使用最多 $ARG1$ 字符，请缩小选区。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "pdfPageStatus": {
+    "message": "$ARG1$ · 第 $ARG2$/$ARG3$ 页",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      },
+      "arg3": {
+        "content": "$3"
+      }
+    }
+  },
+  "pdfPagesTruncated": {
+    "message": "达到文件预览上限，已读取前 $ARG1$ 页。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "pdfReadProgress": {
+    "message": "正在读取第 $ARG1$/$ARG2$ 页…",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      },
+      "arg2": {
+        "content": "$2"
+      }
+    }
+  },
+  "pdfPageOption": {
+    "message": "第 $ARG1$ 页",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "longSelectionLimit": {
+    "message": "选中内容最多支持 $ARG1$ 字符，请缩短选区后重试。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "videoTranslateMenu": {
+    "message": "翻译视频字幕"
+  },
+  "siteTranslationMenu": {
+    "message": "本站自动翻译设置"
+  },
+  "panelPageUnavailable": {
+    "message": "无法访问当前网页。请切到普通网页后从网页右键菜单启动。"
+  },
+  "longSelectionSidePanel": {
+    "message": "选文较长，请在侧栏分段翻译。"
+  },
+  "captionCancelled": {
+    "message": "字幕翻译已取消或超时。"
+  },
+  "captionTranslationFailed": {
+    "message": "无法翻译字幕。"
+  },
+  "captionReopen": {
+    "message": "请重新打开字幕翻译。"
+  },
+  "captionTranslation": {
+    "message": "字幕翻译"
+  },
+  "captionSource": {
+    "message": "原字幕"
+  },
+  "captionTargetLanguage": {
+    "message": "字幕目标语言"
+  },
+  "captionUnavailable": {
+    "message": "当前视频没有可读取的标准字幕轨。"
+  },
+  "captionTrackNumber": {
+    "message": "字幕 $ARG1$",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "noAutoTranslationSites": {
+    "message": "尚未启用任何站点。"
+  },
+  "disableSiteAutoTranslation": {
+    "message": "关闭 $ARG1$ 的自动翻译",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "sitePreferencesReadError": {
+    "message": "无法读取站点偏好，请重新打开设置页。"
+  },
+  "siteAutoTranslationDisabled": {
+    "message": "已关闭 $ARG1$ 的自动翻译。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "siteDisabledWithPermission": {
+    "message": "已关闭 $ARG1$ 的自动翻译。网站授权仍可在 Chrome 扩展设置中处理。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "disableSiteAutoTranslationError": {
+    "message": "无法关闭站点自动翻译，请重试。"
+  },
+  "invalidAutoTranslationSite": {
+    "message": "请输入普通 HTTPS 网页的地址。HTTP 仅支持 localhost 和 127.0.0.1。"
+  },
+  "sitePermissionDenied": {
+    "message": "未授予访问权限。站点偏好保持原状。"
+  },
+  "siteAutoTranslationEnabled": {
+    "message": "已启用 $ARG1$ 的自动翻译，下次加载该站点页面时生效。",
+    "placeholders": {
+      "arg1": {
+        "content": "$1"
+      }
+    }
+  },
+  "enableSiteAutoTranslationError": {
+    "message": "无法启用站点自动翻译，请检查 Chrome 的站点权限后重试。"
   }
 }

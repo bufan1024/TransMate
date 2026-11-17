@@ -2,6 +2,7 @@
   if (globalThis.__transmateVideoCaptions) return;
   globalThis.__transmateVideoCaptions = true;
 
+  const localize = (name, fallback, ...values) => chrome.i18n.getMessage(name, values.map(String)) || fallback;
   let active = null;
 
   function send(session, type, details = {}) {
@@ -68,7 +69,7 @@
       if (!translation) {
         const response = await send(session, 'TRANSMATE_VIDEO_CUE', { text, targetLanguage });
         if (active !== session || session.revision !== revision) return;
-        if (!response?.translation) throw new Error(response?.error || '请重新打开字幕翻译。');
+        if (!response?.translation) throw new Error(response?.error || localize('captionReopen', '请重新打开字幕翻译。'));
         translation = response.translation;
         if (session.cache.size >= 100) session.cache.delete(session.cache.keys().next().value);
         session.cache.set(cueKey, translation);
@@ -98,6 +99,7 @@
     const tracks = video ? readableTracks(video) : [];
     const host = document.createElement('div');
     host.id = 'transmate-video-captions';
+    host.lang = localize('locale', 'zh-CN');
     const root = host.attachShadow({ mode: 'open' });
     const style = document.createElement('style');
     style.textContent = `
@@ -120,17 +122,17 @@
     const controls = document.createElement('div');
     controls.className = 'controls';
     const heading = document.createElement('strong');
-    heading.textContent = '字幕翻译';
+    heading.textContent = localize('captionTranslation', '字幕翻译');
     const trackSelect = document.createElement('select');
     trackSelect.className = 'track';
-    trackSelect.setAttribute('aria-label', '原字幕');
+    trackSelect.setAttribute('aria-label', localize('captionSource', '原字幕'));
     const target = document.createElement('select');
     target.className = 'target';
-    target.setAttribute('aria-label', '字幕目标语言');
+    target.setAttribute('aria-label', localize('captionTargetLanguage', '字幕目标语言'));
     const stop = document.createElement('button');
     stop.type = 'button';
     stop.className = 'stop';
-    stop.textContent = '关闭';
+    stop.textContent = localize('close', '关闭');
     controls.append(heading, trackSelect, target, stop);
     const status = document.createElement('p');
     status.className = 'status';
@@ -153,13 +155,13 @@
     if (tracks.length === 0) {
       trackSelect.hidden = true;
       target.hidden = true;
-      session.status.textContent = '当前视频没有可读取的标准字幕轨。';
+      session.status.textContent = localize('captionUnavailable', '当前视频没有可读取的标准字幕轨。');
       return;
     }
     tracks.forEach((track, index) => {
-      trackSelect.add(new Option(track.label || track.language || `字幕 ${index + 1}`, String(index)));
+      trackSelect.add(new Option(track.label || track.language || localize('captionTrackNumber', `字幕 ${index + 1}`, index + 1), String(index)));
     });
-    target.add(new Option('默认语言', ''));
+    target.add(new Option(localize('defaultLanguage', '默认语言'), ''));
     message.languages.forEach(({ id, name }) => target.add(new Option(name, id)));
     const showing = tracks.findIndex((track) => track.mode === 'showing');
     trackSelect.selectedIndex = Math.max(showing, 0);

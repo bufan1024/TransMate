@@ -2,6 +2,7 @@ import {
   PAGE_TRANSLATION_SITES, disablePageTranslationSite, enablePageTranslationSite,
   pageTranslationSite, readPageTranslationSites,
 } from './lib/page-translation-sites.js';
+import { message as localize } from './lib/i18n.js';
 import { withSettingsLock } from './lib/settings-management.js';
 
 const form = document.querySelector('#site-translation-form');
@@ -34,7 +35,7 @@ async function refresh() {
     if (!sites.length) {
       const empty = document.createElement('li');
       empty.className = 'permission-empty';
-      empty.textContent = '尚未启用任何站点。';
+      empty.textContent = localize('noAutoTranslationSites', '尚未启用任何站点。');
       list.append(empty);
       return;
     }
@@ -45,15 +46,15 @@ async function refresh() {
       const disable = document.createElement('button');
       disable.type = 'button';
       disable.className = 'permission-revoke';
-      disable.textContent = '关闭';
-      disable.setAttribute('aria-label', `关闭 ${site.origin} 的自动翻译`);
+      disable.textContent = localize('close', '关闭');
+      disable.setAttribute('aria-label', localize('disableSiteAutoTranslation', `关闭 ${site.origin} 的自动翻译`, site.origin));
       disable.disabled = busy;
       disable.addEventListener('click', () => turnOff(site));
       row.append(origin, disable);
       list.append(row);
     }
   } catch {
-    if (refresh === refreshNumber) show('无法读取站点偏好，请重新打开设置页。', 'error');
+    if (refresh === refreshNumber) show(localize('sitePreferencesReadError', '无法读取站点偏好，请重新打开设置页。'), 'error');
   }
 }
 
@@ -63,11 +64,11 @@ async function turnOff(site) {
   try {
     const released = await withSettingsLock(globalThis.navigator?.locks, () =>
       disablePageTranslationSite(site, chrome.storage.local, chrome.permissions));
-    show(released ? `已关闭 ${site.origin} 的自动翻译。`
-      : `已关闭 ${site.origin} 的自动翻译。网站授权仍可在 Chrome 扩展设置中处理。`,
+    show(released ? localize('siteAutoTranslationDisabled', `已关闭 ${site.origin} 的自动翻译。`, site.origin)
+      : localize('siteDisabledWithPermission', `已关闭 ${site.origin} 的自动翻译。网站授权仍可在 Chrome 扩展设置中处理。`, site.origin),
     released ? 'success' : 'error');
   } catch {
-    show('无法关闭站点自动翻译，请重试。', 'error');
+    show(localize('disableSiteAutoTranslationError', '无法关闭站点自动翻译，请重试。'), 'error');
   } finally {
     await refresh();
     setBusy(false);
@@ -79,7 +80,7 @@ form.addEventListener('submit', async (event) => {
   if (busy) return;
   const site = pageTranslationSite(address.value.trim());
   if (!site) {
-    show('请输入普通 HTTPS 网页的地址。HTTP 仅支持 localhost 和 127.0.0.1。', 'error');
+    show(localize('invalidAutoTranslationSite', '请输入普通 HTTPS 网页的地址。HTTP 仅支持 localhost 和 127.0.0.1。'), 'error');
     return;
   }
 
@@ -88,15 +89,15 @@ form.addEventListener('submit', async (event) => {
     // The optional site grant must be requested during the submit gesture.
     const granted = await chrome.permissions.request({ origins: [site.pattern] });
     if (!granted) {
-      show('未授予访问权限。站点偏好保持原状。', 'error');
+      show(localize('sitePermissionDenied', '未授予访问权限。站点偏好保持原状。'), 'error');
       return;
     }
     await withSettingsLock(globalThis.navigator?.locks, () =>
       enablePageTranslationSite(site, chrome.storage.local, chrome.permissions));
     address.value = '';
-    show(`已启用 ${site.origin} 的自动翻译，下次加载该站点页面时生效。`, 'success');
+    show(localize('siteAutoTranslationEnabled', `已启用 ${site.origin} 的自动翻译，下次加载该站点页面时生效。`, site.origin), 'success');
   } catch {
-    show('无法启用站点自动翻译，请检查 Chrome 的站点权限后重试。', 'error');
+    show(localize('enableSiteAutoTranslationError', '无法启用站点自动翻译，请检查 Chrome 的站点权限后重试。'), 'error');
   } finally {
     await refresh();
     setBusy(false);

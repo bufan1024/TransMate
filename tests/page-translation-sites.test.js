@@ -6,10 +6,10 @@ import {
   forgetRevokedTranslationSites, pageTranslationSite, storedSites,
 } from '../lib/page-translation-sites.js';
 
-function fakeStore(origins = [], settings) {
-  const data = { [PAGE_TRANSLATION_SITES]: origins, settings };
+function fakeStore(origins = [], settings, serviceProfiles) {
+  const data = { [PAGE_TRANSLATION_SITES]: origins, settings, serviceProfiles };
   const storage = {
-    get: async (key) => ({ [key]: data[key] }),
+    get: async (keys) => Object.fromEntries([keys].flat().map((key) => [key, data[key]])),
     set: async (values) => { Object.assign(data, values); },
   };
   return { data, storage };
@@ -65,7 +65,7 @@ test('disabling a site retains a grant used by another port or the configured AI
   const site = pageTranslationSite('https://example.test:8443/read');
   const otherPort = pageTranslationSite('https://example.test:8444/read');
   const { data, storage } = fakeStore([site.origin, otherPort.origin], {
-    apiKey: 'saved-key', endpoint: 'https://example.test/v1/chat/completions',
+    apiKey: 'saved-key', endpoint: 'https://example.test/v1/chat/completions', model: 'test-model', targetLanguage: 'zh-CN',
   });
   const { api, removed } = fakePermissions(site.pattern);
   await disablePageTranslationSite(site, storage, api);
@@ -78,4 +78,26 @@ test('disabling a site retains a grant used by another port or the configured AI
   await enablePageTranslationSite(site, storage, api);
   await disablePageTranslationSite(site, storage, api);
   assert.deepEqual(removed, [site.pattern]);
+});
+
+test('disabling a site retains a grant used by an inactive unauthenticated local profile', async () => {
+  const site = pageTranslationSite('http://localhost:8443/read');
+  const activeSettings = {
+    apiKey: 'saved-key', endpoint: 'https://example.test/v1/chat/completions', model: 'test-model', targetLanguage: 'zh-CN',
+  };
+  const inactiveSettings = {
+    provider: 'custom', authType: 'none', endpoint: 'http://localhost:8000/translate',
+    model: 'local-test-model', targetLanguage: 'zh-CN',
+  };
+  const { data, storage } = fakeStore([site.origin], activeSettings, {
+    activeId: 'active',
+    profiles: [
+      { id: 'active', name: 'Active', settings: activeSettings },
+      { id: 'local', name: 'Local', settings: inactiveSettings },
+    ],
+  });
+  const { api, removed } = fakePermissions(site.pattern);
+  assert.equal(await disablePageTranslationSite(site, storage, api), true);
+  assert.deepEqual(data[PAGE_TRANSLATION_SITES], []);
+  assert.deepEqual(removed, []);
 });

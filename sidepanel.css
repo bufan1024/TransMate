@@ -140,3 +140,12 @@ footer{display:flex;align-items:center;gap:7px;margin-top:28px;padding-top:13px;
 .translation-history p { color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 .translation-history p:empty { display: none; }
 .translation-history .history-result { color: var(--ink); }
+
+.local-pdf { margin: 0 0 14px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--paper-2); }
+.local-pdf summary { cursor: pointer; font-size: 12px; font-weight: 700; }
+.pdf-help, .pdf-status { margin: 8px 0; color: var(--muted); font-size: 11px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pdf-status:empty { display: none; }
+#pdf-file { width: 100%; max-width: 100%; font: inherit; font-size: 11px; }
+#pdf-pages { font-size: 12px; }
+#pdf-page { font: inherit; }
+#pdf-text { display: block; box-sizing: border-box; width: 100%; margin: 8px 0; padding: 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: var(--paper-2); resize: vertical; }

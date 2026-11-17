@@ -22,8 +22,11 @@ const INLINE_SWITCH_LANGUAGE = 'TRANSMATE_INLINE_SWITCH_LANGUAGE';
 const INLINE_OPEN_PANEL = 'TRANSMATE_INLINE_OPEN_PANEL';
 const INLINE_EXPORT_RESULT = 'TRANSMATE_INLINE_EXPORT_RESULT';
 const SHORTCUT_HINT = localize('selectFirst', '请先选中文字，再按快捷键翻译。');
-const LONG_SELECTION_LIMIT = `选中内容最多支持 ${MAX_LONG_TEXT_LENGTH.toLocaleString('zh-CN')} 字符，请缩短选区后重试。`;
-const languageNames = new Intl.DisplayNames(localize('locale', 'zh-CN'), { type: 'language', fallback: 'none' });
+const locale = localize('locale', 'zh-CN');
+const maxSelectionLength = MAX_LONG_TEXT_LENGTH.toLocaleString(locale);
+const LONG_SELECTION_LIMIT = localize('longSelectionLimit',
+  `选中内容最多支持 ${maxSelectionLength} 字符，请缩短选区后重试。`, maxSelectionLength);
+const languageNames = new Intl.DisplayNames(locale, { type: 'language', fallback: 'none' });
 
 function displayTargetLanguage(language) {
   const supported = TARGET_LANGUAGES.find(({ id }) => id === language);
@@ -115,10 +118,10 @@ export function registerBackground(chromeApi, {
       contexts: ['selection'],
     });
     chromeApi.contextMenus.create({
-      id: VIDEO_MENU, title: '翻译视频字幕', contexts: ['page', 'video'], documentUrlPatterns: ['http://*/*', 'https://*/*'],
+      id: VIDEO_MENU, title: localize('videoTranslateMenu', '翻译视频字幕'), contexts: ['page', 'video'], documentUrlPatterns: ['http://*/*', 'https://*/*'],
     });
     chromeApi.contextMenus.create({
-      id: SITE_SETTINGS_MENU, title: '本站自动翻译设置', contexts: ['page'], documentUrlPatterns: SITE_MENU_PATTERNS,
+      id: SITE_SETTINGS_MENU, title: localize('siteTranslationMenu', '本站自动翻译设置'), contexts: ['page'], documentUrlPatterns: SITE_MENU_PATTERNS,
     });
     for (const [id, title] of [[PAGE_TRANSLATION_MENU, localize('pageTranslateMenu', '整页双语翻译')], [PAGE_SUMMARY_MENU, localize('pageSummaryMenu', '总结网页重点')]]) {
       chromeApi.contextMenus.create({
@@ -564,7 +567,7 @@ export function registerBackground(chromeApi, {
   }
 
   async function handlePanelPageAction(message, sender) {
-    const error = "无法访问当前网页。请切到普通网页后从网页右键菜单启动。";
+    const error = localize('panelPageUnavailable', '无法访问当前网页。请切到普通网页后从网页右键菜单启动。');
     const { action, windowId } = message;
     if (sender?.url !== chromeApi.runtime.getURL('sidepanel.html') || (sender.frameId != null && sender.frameId !== 0)
         || !Number.isInteger(windowId) || windowId < 0
@@ -687,7 +690,7 @@ export function registerBackground(chromeApi, {
       pageActions.cancelAutoSites(new Set(disabled));
     }
     if (!changes.settings && !glossaryAffectsTranslations(changes[GLOSSARY_STORAGE_KEY])) return;
-    videoActions.cancelAll();
+    if (changes.settings) videoActions.cancelAll();
     pageActions.cancelAll();
     for (const entry of activeByTab.values()) invalidate(entry);
     // MV3 may have restarted the worker while a completed card remained open.

@@ -1,14 +1,33 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { pdfSnippet, scannedPdf, textualPdf } from './fixtures/local-pdf.mjs';
 
 const extensionDir = fileURLToPath(new URL('../', import.meta.url));
 const chromiumExecutable = process.env.TRANSMATE_CHROMIUM_EXECUTABLE;
+const captionVideo = await readFile(new URL('./fixtures/captions.webm', import.meta.url));
+const captionFixture = `<!doctype html><meta charset="utf-8">
+<video id="fixture-video" src="/caption-video.webm" width="600" height="338" preload="auto" controls muted>
+  <track kind="subtitles" src="/caption-fixture.vtt" srclang="en" label="English">
+</video>`;
+const fixtureVtt = `WEBVTT
+
+00:00.000 --> 00:01.900
+<b>caption opening</b>
+
+00:02.000 --> 00:03.900
+caption delayed
+
+00:04.000 --> 00:05.900
+caption ending
+`;
 const longInlineSource = 'The river carried small branches and leaves past the quiet town after the rain. '.repeat(20).trim();
+const longBatchParts = ['First paragraph '.repeat(200).trim(), 'Second paragraph '.repeat(180).trim()];
+const longBatchSource = longBatchParts.join('\n\n');
 const fixturePage = `<!doctype html>
 <html lang="en">
 <meta charset="utf-8">
@@ -17,7 +36,8 @@ const fixturePage = `<!doctype html>
   body { margin: 32px; min-height: 140vh; font: 18px sans-serif; }
   p { margin: 20px 0; }
   #inline-first { margin-top: 130px; }
-  #inline-long { font-size: 12px; }
+  #inline-long, #inline-batch { font-size: 12px; }
+  #inline-batch { white-space: pre-wrap; }
 </style>
 <button id="fixture-control">Page control</button>
 <p id="inline-first">inline hello</p>
@@ -30,6 +50,7 @@ const fixturePage = `<!doctype html>
 <input id="shortcut-input" value="shortcut input">
 <iframe id="shortcut-frame" src="/inline-frame" title="Shortcut frame"></iframe>
 <p id="inline-long">${longInlineSource}</p>
+<p id="inline-batch">${longBatchSource}</p>
 </html>`;
 const frameFixturePage = `<!doctype html>
 <html lang="en">
@@ -69,6 +90,15 @@ const articleTranslations = [
   '带上<em id="unexpected-page-markup">红光手电筒</em>。',
 ];
 const articleSummary = '寻找北极星前，先让眼睛适应黑暗。准备一支红光手电筒。';
+
+const dynamicBlocks = [
+  ['dynamic-visible', 'New paragraph near the reader.', '新加载的可见段落。'],
+  ['dynamic-far', 'Later article loaded below the fold.', '稍后加载的远处正文。'],
+  ['dynamic-detached', 'Old text removed before the model responds.', '已移除的正文。'],
+  ['dynamic-replacement', 'Replacement article section.', '替换后的新正文。'],
+];
+const dynamicTranslations = new Map(dynamicBlocks.map(([, text, translation]) => [text, translation]));
+
 const viewportBlocks = [
   ['viewport-intro', 'Viewport introduction to shoreline tides.', '视口内的潮汐介绍。'],
   ['viewport-next', 'Viewport detail about estuary currents.', '视口内的河口潮流。'],
@@ -100,11 +130,13 @@ function deferred() {
 }
 
 const requests = [];
+const geminiRequests = [];
 let retryAttempts = 0;
 let releaseSlowResponse;
 let finishSlowResponse;
 let delayedPageTranslation;
 let viewportStreamGate;
+let interruptViewportStream = false;
 const slowResponseFinished = new Promise((resolve) => { finishSlowResponse = resolve; });
 const delayedInlineResponses = new Map([
   ['inline slow', { gate: deferred(), finished: deferred() }],
@@ -125,10 +157,34 @@ for (const delayed of languageResponses.values()) {
   delayed.finished = deferred();
 }
 
+const delayedCaption = deferred();
 const server = createServer(async (request, response) => {
   response.setHeader('Access-Control-Allow-Origin', '*');
   response.setHeader('Access-Control-Allow-Headers', 'authorization,content-type');
   response.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  if (request.method === 'GET' && request.url === '/caption-fixture') {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(captionFixture);
+    return;
+  }
+  if (request.method === 'GET' && request.url === '/caption-fixture.vtt') {
+    response.writeHead(200, { 'Content-Type': 'text/vtt; charset=utf-8' }).end(fixtureVtt);
+    return;
+  }
+  if (request.method === 'GET' && request.url === '/caption-video.webm') {
+    const requested = /^bytes=(\d+)-(\d*)$/.exec(request.headers.range || '');
+    const start = requested ? Number(requested[1]) : 0;
+    const end = requested?.[2] ? Math.min(Number(requested[2]), captionVideo.length - 1) : captionVideo.length - 1;
+    if (start > end) {
+      response.writeHead(416, { 'Content-Range': `bytes */${captionVideo.length}` }).end();
+      return;
+    }
+    const headers = {
+      'Content-Type': 'video/webm', 'Content-Length': end - start + 1, 'Accept-Ranges': 'bytes',
+      ...(requested ? { 'Content-Range': `bytes ${start}-${end}/${captionVideo.length}` } : {}),
+    };
+    response.writeHead(requested ? 206 : 200, headers).end(captionVideo.subarray(start, end + 1));
+    return;
+  }
   if (request.method === 'GET' && request.url === '/inline-fixture') {
     response.setHeader('Content-Type', 'text/html; charset=utf-8');
     response.writeHead(200).end(fixturePage);
@@ -153,6 +209,47 @@ const server = createServer(async (request, response) => {
     response.writeHead(204).end();
     return;
   }
+  const geminiUrl = new URL(request.url, 'http://127.0.0.1');
+  const geminiOperation = /^\/v1beta\/models\/gemini-fixture:(generateContent|streamGenerateContent)$/.exec(geminiUrl.pathname)?.[1];
+  if (request.method === 'POST' && geminiOperation) {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    const system = body.systemInstruction?.parts?.[0]?.text;
+    const text = body.contents?.[0]?.parts?.[0]?.text;
+    geminiRequests.push({
+      text, system, operation: geminiOperation, query: geminiUrl.search,
+      apiKey: request.headers['x-goog-api-key'], authorization: request.headers.authorization,
+    });
+    const asCandidate = (parts, finishReason) => ({
+      candidates: [{ index: 0, content: { role: 'model', parts }, finishReason }],
+    });
+    const isPageTranslation = system?.startsWith('Translate the following webpage text blocks into ');
+    const translation = system?.startsWith('Summarize')
+      ? 'Gemini 网页总结'
+      : new Map([
+        ['Hello, world.', 'Gemini 连接成功'],
+        ['gemini panel', 'Gemini 侧栏译文'],
+        ['inline hello', 'Gemini 划词译文'],
+      ]).get(text);
+    if (geminiOperation === 'streamGenerateContent') {
+      const deltas = isPageTranslation
+        ? JSON.parse(text).map(({ id }) => JSON.stringify({ id, text: 'Gemini 网页译文 ' + id }) + '\n')
+        : [translation];
+      response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      response.write(`data: ${JSON.stringify(asCandidate([{ text: 'private thought', thought: true }]))}\n\n`);
+      for (const content of deltas) {
+        response.write(`data: ${JSON.stringify(asCandidate([{ text: content }]))}\n\n`);
+      }
+      response.end(`data: ${JSON.stringify(asCandidate([], 'STOP'))}\n\n`);
+      return;
+    }
+    const parts = [{ text: 'private thought', thought: true }, { text: translation }];
+    response.writeHead(200, { 'Content-Type': 'application/json' })
+      .end(JSON.stringify(asCandidate(parts, 'STOP')));
+    return;
+  }
+
   if (request.method !== 'POST' || request.url !== '/v1/chat/completions') {
     response.writeHead(404).end();
     return;
@@ -181,6 +278,11 @@ const server = createServer(async (request, response) => {
         response.write(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`);
         if (block === viewportBlocks[0][1] && viewportStreamGate) await viewportStreamGate.promise;
         if (response.destroyed) return;
+        if (block === viewportBlocks[0][1] && interruptViewportStream) {
+          interruptViewportStream = false;
+          response.end('data: [DONE]\n\n');
+          return;
+        }
       }
       response.write('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n');
       response.end('data: [DONE]\n\n');
@@ -188,7 +290,7 @@ const server = createServer(async (request, response) => {
     }
     const content = pageSummary ? articleSummary : JSON.stringify(blocks.map(({ id, text: block }) => ({
       id,
-      text: articleTranslations[articleBlocks.indexOf(block)] || '未知段落译文',
+      text: articleTranslations[articleBlocks.indexOf(block)] || dynamicTranslations.get(block) || '未知段落译文',
     })).reverse());
     if (!response.destroyed) {
       response.writeHead(200).end(JSON.stringify({ choices: [{ message: { content } }] }));
@@ -206,6 +308,13 @@ const server = createServer(async (request, response) => {
     if (!response.destroyed) {
       response.end('data: {"choices":[{"delta":{"content":"然后完成。"},"finish_reason":"stop"}]}\n\n');
     }
+    return;
+  }
+
+  if (typeof text === 'string' && text.startsWith('caption ')) {
+    if (text === 'caption delayed') await delayedCaption.promise;
+    const content = `${target}:${text}`;
+    if (!response.destroyed) response.writeHead(200).end(JSON.stringify({ choices: [{ message: { content } }] }));
     return;
   }
 
@@ -232,6 +341,8 @@ const server = createServer(async (request, response) => {
   }
 
   const translations = {
+    [longBatchParts[0]]: '第一段译文',
+    [longBatchParts[1]]: '第二段译文',
     'Hello, world.': '你好，世界。',
     'panel success': '侧栏译文',
     'slow cancel': '过期译文',
@@ -341,6 +452,9 @@ await cp(extensionDir, testExtensionDir, {
 });
 const testManifestPath = join(testExtensionDir, 'manifest.json');
 const testManifest = JSON.parse(await readFile(testManifestPath, 'utf8'));
+// The existing flow assertions exercise the default Chinese messages.
+const englishMessages = await readFile(join(testExtensionDir, '_locales/en/messages.json'));
+await rm(join(testExtensionDir, '_locales/en'), { recursive: true });
 testManifest.host_permissions = [...new Set([
   ...(testManifest.host_permissions || []),
   'http://127.0.0.1/*',
@@ -830,6 +944,23 @@ try {
   assert.equal(await worker.evaluate(async () => Object.keys(await chrome.storage.session.get(null))
     .some((key) => key.startsWith('pendingSelection:'))), false, '侧栏消费后应清除一次性交接记录');
 
+  await inlinePage.locator('#inline-batch').scrollIntoViewIfNeeded();
+  selectedText = await selectFixtureText(inlinePage, 'inline-batch');
+  assert.equal(selectedText, longBatchSource);
+  const requestsBeforeLongSelection = requests.length;
+  await triggerContextMenu(worker, inlineTabId, 'translate-selection', selectedText);
+  await inlineHost.locator('.error').filter({ hasText: '选文较长，请在侧栏分段翻译。' }).waitFor();
+  assert.equal(requests.length, requestsBeforeLongSelection, '长选文浮层不发起请求');
+  await inlineHost.getByRole('button', { name: '在侧栏打开' }).click();
+  await inlineHost.waitFor({ state: 'detached' });
+  await panel.locator('#source-plan').filter({ hasText: /2 段.*2 次请求.*费用/ }).waitFor();
+  assert.equal(await panelSource.inputValue(), longBatchSource);
+  assert.equal(requests.length, requestsBeforeLongSelection, '交接长选文后应等待侧栏明确开始');
+  await panel.locator('#translate-button').click();
+  await waitUntil(async () => await panelResult.textContent() === '第一段译文\n\n第二段译文',
+    '分段译文应按原文顺序显示');
+  assert.deepEqual(requests.slice(requestsBeforeLongSelection).map(({ text }) => text), longBatchParts);
+
   selectedText = await selectFixtureText(inlinePage, 'inline-stream-text');
   await triggerContextMenu(worker, inlineTabId, 'translate-selection', selectedText);
   await inlineHost.locator('.preview').filter({ hasText: '先显示这段，' }).waitFor();
@@ -1015,6 +1146,7 @@ try {
     }),
   ]);
   await articlePage.waitForURL(articleUrl);
+  await articlePage.bringToFront();
   await articlePage.locator('#article-intro').waitFor();
   const pageStatus = articlePage.locator('#transmate-page-status');
   const pageTranslations = articlePage.locator('[data-transmate-page-translation]');
@@ -1035,9 +1167,36 @@ try {
     '应按正文顺序发送文字，过滤隐藏、可编辑和导航内容',
   );
 
+  const intro = articlePage.locator('#article-intro');
+  const originalIntroHtml = await intro.evaluate((element) => {
+    window.authorLinkClicks = 0;
+    element.querySelector('a').addEventListener('click', (event) => {
+      event.preventDefault();
+      window.authorLinkClicks++;
+    });
+    return element.innerHTML;
+  });
+  const translateOnly = pageStatus.getByRole('button', { name: '仅译文', exact: true });
+  const restoreBilingual = pageStatus.getByRole('button', { name: '恢复双语', exact: true });
+  const beforeDisplayMode = requests.length;
+  await translateOnly.click();
+  assert.match(await intro.innerText(), /黄昏后寻找北极星/);
+  assert.doesNotMatch(await intro.innerText(), /Look for|after dusk/);
+  assert.equal(await intro.getByRole('link', { name: 'north star' }).isVisible(), true, '仅译文时仍可使用网页原有链接');
+  await intro.getByRole('link', { name: 'north star' }).click();
+  assert.equal(await articlePage.evaluate(() => window.authorLinkClicks), 1);
+  await articlePage.waitForTimeout(250);
+  assert.equal(requests.length, beforeDisplayMode, '切换显示模式不应发出翻译请求');
+
+  const beforePanelSummary = requests.length;
+  const opensBeforePanelSummary = await worker.evaluate(() => globalThis.__transmateTestSidePanelOpens);
   await panel.getByRole('button', { name: '总结本页' }).evaluate((button) => button.click());
-  await panel.locator('#page-summary-text').filter({ hasText: articleSummary }).waitFor();
-  assert.equal(await worker.evaluate(() => globalThis.__transmateTestSidePanelOpens), 0,
+  await waitUntil(async () => requests.length > beforePanelSummary
+    && await panel.locator('#page-summary-text').isVisible()
+    && await panel.locator('#page-summary-text').textContent() === articleSummary,
+  '侧栏总结入口应请求并显示本页总结');
+  assert.deepEqual(requestedPageText(beforePanelSummary), articleBlocks);
+  assert.equal(await worker.evaluate(() => globalThis.__transmateTestSidePanelOpens), opensBeforePanelSummary,
     '侧栏内总结不需要再次打开侧栏');
 
   const summaryRequestCount = requests.length;
@@ -1058,6 +1217,13 @@ try {
   );
   assert.deepEqual(await pageTranslations.allTextContents(), articleTranslations,
     '查看总结时保留已显示的双语段落');
+
+  const beforeRestoreDisplay = requests.length;
+  await restoreBilingual.click();
+  assert.equal(await intro.innerHTML(), originalIntroHtml, '恢复双语后还原作者提供的段落DOM');
+  await intro.getByRole('link', { name: 'north star' }).click();
+  assert.equal(await articlePage.evaluate(() => window.authorLinkClicks), 2, '切换后保留作者绑定的事件');
+  assert.equal(requests.length, beforeRestoreDisplay, '恢复双语无需重新请求');
 
   const beforeSummaryShortcut = requests.length;
   await triggerShortcut(worker, articleTab.id, 'summarize-page');
@@ -1094,9 +1260,11 @@ try {
   await triggerShortcut(worker, articleTab.id, 'translate-page');
   await pageStatus.getByRole('button', { name: '移除译文' }).waitFor();
   assert.deepEqual(await pageTranslations.allTextContents(), articleTranslations, '快捷键应翻译当前页正文');
+  await translateOnly.click();
   await articlePage.evaluate(() => history.pushState({}, '', '/article-next'));
   await pageStatus.waitFor({ state: 'detached' });
   assert.equal(await pageTranslations.count(), 0, '页内路由变化应清理旧译文');
+  assert.equal(await intro.innerHTML(), originalIntroHtml, '页内导航应恢复原文DOM');
   await panel.locator('#page-summary').waitFor({ state: 'hidden' });
 
   const viewportUrl = new URL('/viewport-fixture', endpoint).href;
@@ -1114,16 +1282,38 @@ try {
   assert.equal(requests[viewportRequestCount].stream, true, '网页翻译应向 AI 服务请求流式响应');
   assert.deepEqual(await pageTranslations.allTextContents(), [viewportBlocks[0][2]],
     'AI 响应尚未结束时应该已经出现第一段译文');
+  await translateOnly.click();
+  assert.match(await articlePage.locator('#viewport-intro').innerText(), /潮汐介绍/);
+  assert.doesNotMatch(await articlePage.locator('#viewport-intro').innerText(), /Viewport introduction/);
+  assert.equal(await articlePage.locator('#viewport-next').innerText(), viewportBlocks[1][1],
+    '尚未翻译的原文应保持显示');
+  await restoreBilingual.click();
+  interruptViewportStream = true;
   viewportStreamGate.resolve();
   viewportStreamGate = undefined;
+
+  const retryPage = pageStatus.getByRole('button', { name: '重试未完成段落' });
+  await retryPage.waitFor({ timeout: 6000 });
+  const originalTranslation = await pageTranslations.first().elementHandle();
+  assert.ok(originalTranslation, '失败时应保留已翻译的段落');
+  assert.deepEqual(requestedPageText(viewportRequestCount), initialViewportBlocks.map(([, text]) => text),
+    '第一次请求仅发送可见段落和附近的预取段落');
+  const beforePageRetry = requests.length;
+  await retryPage.evaluate((button) => button.click());
+  await articlePage.waitForTimeout(150);
+  assert.equal(requests.length, beforePageRetry, '网页脚本合成点击不得触发重试');
+  await retryPage.click();
 
   await pageTranslations.filter({ hasText: viewportBlocks[2][2] }).waitFor({ timeout: 6000 });
   await pageStatus.getByRole('button', { name: '移除译文' }).waitFor({ timeout: 6000 });
   await articlePage.waitForTimeout(400);
-  assert.deepEqual(requestedPageText(viewportRequestCount), initialViewportBlocks.map(([, text]) => text),
-    '静止时仅发送可见段落和附近的预取段落');
+  assert.deepEqual(requestedPageText(beforePageRetry), initialViewportBlocks.slice(1).map(([, text]) => text),
+    '只重试失败请求中未翻译完成的段落');
+  assert.equal(await originalTranslation.evaluate((element) => element.isConnected), true,
+    '重试期间保留原来的译文节点');
   assert.deepEqual(await pageTranslations.allTextContents(), initialViewportBlocks.map(([, , translation]) => translation));
 
+  const beforeViewportScroll = requests.length;
   const middleParagraph = articlePage.locator('#viewport-after-scroll');
   const scrollDistance = await middleParagraph.evaluate((element) => element.getBoundingClientRect().top - 180);
   await articlePage.mouse.move(220, 180);
@@ -1132,13 +1322,15 @@ try {
   await pageStatus.getByRole('button', { name: '移除译文' }).waitFor({ timeout: 6000 });
   await articlePage.waitForTimeout(400);
   const scrolledViewportBlocks = viewportBlocks.slice(0, 4);
-  assert.deepEqual(requestedPageText(viewportRequestCount), scrolledViewportBlocks.map(([, text]) => text),
-    '滚动后仅追加新到达的段落，远处内容继续等待');
+  assert.deepEqual(requestedPageText(beforeViewportScroll), [viewportBlocks[3][1]],
+    '重试后滚动恢复，仅追加新到达的段落');
   assert.deepEqual(await pageTranslations.allTextContents(), scrolledViewportBlocks.map(([, , translation]) => translation));
 
   const longSummaryRequestCount = requests.length;
   await triggerContextMenu(worker, articleTab.id, 'summarize-page');
-  await panel.locator('#page-summary-text').waitFor({ state: 'visible' });
+  await waitUntil(async () => requests.length > longSummaryRequestCount
+    && await panel.locator('#page-summary-text').isVisible(),
+  '长网页总结应提交请求并在侧栏完成');
   assert.deepEqual(requestedPageText(longSummaryRequestCount), viewportBlocks.map(([, text]) => text),
     '长网页总结仍应读取整个页面正文');
 
@@ -1151,6 +1343,223 @@ try {
   await articlePage.mouse.wheel(0, distanceToChanged);
   await pageStatus.getByText('网页正文已变动，请重新启动翻译。').waitFor({ timeout: 6000 });
   assert.equal(requests.length, beforeChangedViewport, '正文原位变动后不得发送已经过期的段落');
+
+  await articlePage.goto(articleUrl);
+  await triggerContextMenu(worker, articleTab.id, 'translate-page');
+  await pageStatus.getByRole('button', { name: '移除译文' }).waitFor();
+  const oldTranslation = await pageTranslations.first().elementHandle();
+  const beforeDynamic = requests.length;
+  await articlePage.locator('article').evaluate((article, [first, second]) => {
+    for (const [id, text] of [first, second]) {
+      const paragraph = document.createElement('p');
+      paragraph.id = id;
+      paragraph.textContent = text;
+      if (id === second[0]) paragraph.style.marginTop = '220vh';
+      article.append(paragraph);
+    }
+    const nav = document.createElement('nav');
+    nav.textContent = 'Inserted navigation must remain private.';
+    article.append(nav);
+  }, dynamicBlocks.slice(0, 2));
+  await pageTranslations.filter({ hasText: dynamicBlocks[0][2] }).waitFor({ timeout: 6000 });
+  assert.deepEqual(requestedPageText(beforeDynamic), [dynamicBlocks[0][1]],
+    '静止时仅发送新出现且接近当前阅读位置的正文');
+  assert.equal(await oldTranslation.evaluate((node) => node.isConnected), true,
+    '已有译文的原始节点应保持不变');
+
+  await articlePage.locator('#dynamic-far').evaluate((paragraph) => paragraph.scrollIntoView());
+  await pageTranslations.filter({ hasText: dynamicBlocks[1][2] }).waitFor({ timeout: 6000 });
+  await pageStatus.getByRole('button', { name: '移除译文' }).waitFor();
+  assert.deepEqual(requestedPageText(beforeDynamic), dynamicBlocks.slice(0, 2).map(([, text]) => text),
+    '远处新增正文应在滚动到该处后发送');
+
+  await translateOnly.click();
+  delayedPageTranslation = { gate: deferred(), finished: deferred() };
+  const beforeReplacement = requests.length;
+  await articlePage.locator('#dynamic-far').evaluate((paragraph, [id, text]) => {
+    const pending = document.createElement('p');
+    pending.id = id;
+    pending.textContent = text;
+    paragraph.after(pending);
+  }, dynamicBlocks[2]);
+  await waitUntil(() => requests.length > beforeReplacement, '动态旧段落请求正在等待');
+  await articlePage.locator('#dynamic-detached').evaluate((paragraph, [id, text]) => {
+    const replacement = document.createElement('p');
+    replacement.id = id;
+    replacement.textContent = text;
+    paragraph.replaceWith(replacement);
+  }, dynamicBlocks[3]);
+  const removedRequest = delayedPageTranslation;
+  delayedPageTranslation = undefined;
+  removedRequest.gate.resolve();
+  await removedRequest.finished.promise;
+  await pageTranslations.filter({ hasText: dynamicBlocks[3][2] }).waitFor({ timeout: 6000 });
+  assert.equal(await pageTranslations.filter({ hasText: dynamicBlocks[2][2] }).count(), 0);
+  assert.deepEqual(requestedPageText(beforeReplacement), dynamicBlocks.slice(2).map(([, text]) => text),
+    '替换正文时丢弃已移除段落的迟到结果并按需翻译新节点');
+
+  const replacedTranslation = await pageTranslations.filter({ hasText: dynamicBlocks[3][2] }).elementHandle();
+  const beforeIdenticalRender = requests.length;
+  await articlePage.locator('#dynamic-replacement').evaluate((paragraph, text) => {
+    const replacement = document.createElement('p');
+    replacement.id = paragraph.id;
+    replacement.textContent = text;
+    paragraph.replaceWith(replacement);
+  }, dynamicBlocks[3][1]);
+  await waitUntil(async () => !await replacedTranslation.evaluate((element) => element.isConnected),
+    '重新渲染相同的正文后移除旧译文节点');
+  await pageTranslations.filter({ hasText: dynamicBlocks[3][2] }).waitFor({ timeout: 6000 });
+  assert.equal(requests.length, beforeIdenticalRender, '重新渲染相同原文时复用本会话的译文');
+  const dynamicReplacement = articlePage.locator('#dynamic-replacement');
+  assert.equal(await dynamicReplacement.innerText(), dynamicBlocks[3][2], '后到译文遵循当前显示模式');
+
+  const originalCellHtml = '<em style="font-style: normal">Cell source</em><button type="button">Cell tool</button>';
+  await dynamicReplacement.evaluate((paragraph, html) => {
+    const table = document.createElement('table');
+    const cell = table.insertRow().insertCell();
+    cell.id = 'display-mode-cell';
+    cell.innerHTML = html;
+    paragraph.after(table);
+  }, originalCellHtml);
+  const displayModeCell = articlePage.locator('#display-mode-cell');
+  await displayModeCell.locator('[data-transmate-page-translation]').waitFor({ timeout: 6000 });
+  assert.doesNotMatch(await displayModeCell.innerText(), /Cell source/, '表格仅隐藏已翻译原文');
+  assert.equal(await displayModeCell.getByRole('button', { name: 'Cell tool' }).isVisible(), true);
+  const beforeCellEdit = requests.length;
+  await displayModeCell.locator('em').evaluate((emphasis) => {
+    const text = document.createTreeWalker(emphasis, NodeFilter.SHOW_TEXT).nextNode();
+    text.data = 'Edited cell';
+  });
+  await waitUntil(async () => (await displayModeCell.innerText()).includes('Edited cell'),
+    '作者更新的表格原文应恢复显示');
+  assert.equal(requests.length, beforeCellEdit, '已经翻译的正文变动不应擅自重译');
+  await pageStatus.getByRole('button', { name: '移除译文' }).click();
+  assert.equal(await displayModeCell.innerHTML(), originalCellHtml.replace('Cell source', 'Edited cell'),
+    '关闭翻译时原地恢复作者样式并保留网页自行更新的文字');
+  assert.equal(await dynamicReplacement.innerText(), dynamicBlocks[3][1]);
+  const beforeDynamicCancel = requests.length;
+  await articlePage.locator('#dynamic-replacement').evaluate((paragraph) => {
+    const another = document.createElement('p');
+    another.textContent = 'Inserted after cancellation.';
+    paragraph.after(another);
+  });
+  await articlePage.waitForTimeout(300);
+  assert.equal(requests.length, beforeDynamicCancel, '取消后监听停止，不再提交动态正文');
+
+  const exactSite = new URL(articleUrl).origin;
+  const beforeOffSiteLoad = requests.length;
+  await articlePage.goto(articleUrl);
+  await articlePage.waitForTimeout(350);
+  assert.equal(requests.length, beforeOffSiteLoad, '默认关闭时正常网页不触发自动翻译');
+  assert.equal(await pageStatus.count(), 0);
+
+  const siteAddress = options.getByLabel('站点地址');
+  await siteAddress.fill(articleUrl + '?private=omit-this#omit-this');
+  await options.getByRole('button', { name: '授权并启用' }).click();
+  const disableSite = options.getByRole('button', { name: `关闭 ${exactSite} 的自动翻译` });
+  await disableSite.waitFor();
+  assert.deepEqual(await options.evaluate(() => globalThis.__permissionRequests.at(-1).origins), ['http://127.0.0.1/*']);
+  assert.deepEqual(await options.evaluate(async () => (await chrome.storage.local.get('pageTranslationSites')).pageTranslationSites),
+    [exactSite], '站点偏好不保存完整页面地址');
+  assert.equal(requests.length, beforeOffSiteLoad, '设置启用不读取已打开的网页');
+
+  await articlePage.reload();
+  await pageStatus.getByText(/自动翻译/).waitFor({ timeout: 6000 });
+  await pageStatus.getByRole('button', { name: '移除译文' }).waitFor();
+  assert.deepEqual(await pageTranslations.allTextContents(), articleTranslations);
+  assert.deepEqual(requestedPageText(beforeOffSiteLoad), articleBlocks);
+
+  await disableSite.click();
+  await disableSite.waitFor({ state: 'detached' });
+  await pageStatus.waitFor({ state: 'detached' });
+  assert.equal(await pageTranslations.count(), 0, '关闭站点偏好会移除自动译文');
+  const beforeSiteDisabled = requests.length;
+  await articlePage.reload();
+  await articlePage.waitForTimeout(350);
+  assert.equal(requests.length, beforeSiteDisabled, '关闭后重新加载不启动自动翻译');
+  await triggerContextMenu(worker, articleTab.id, 'translate-page');
+  await pageStatus.getByRole('button', { name: '移除译文' }).waitFor();
+  assert.deepEqual(await pageTranslations.allTextContents(), articleTranslations, '关闭后仍可手动翻译');
+
+  const captionUrl = new URL('/caption-fixture', endpoint).href;
+  await articlePage.goto(captionUrl);
+  const video = articlePage.locator('#fixture-video');
+  await waitUntil(() => video.evaluate((element) => element.readyState >= 2), '浏览器加载视频素材');
+  const seek = (time) => video.evaluate((element, position) => { element.currentTime = position; }, time);
+  await seek(0.3);
+  await triggerContextMenu(worker, articleTab.id, 'translate-video-captions');
+  const captionHost = articlePage.locator('#transmate-video-captions');
+  const caption = captionHost.locator('.caption');
+  await caption.filter({ hasText: saved.targetLanguage + ':caption opening' }).waitFor();
+  await seek(2.3);
+  await waitUntil(() => requests.some(({ text }) => text === 'caption delayed'), '延迟字幕请求已发出');
+  await seek(4.3);
+  await caption.filter({ hasText: saved.targetLanguage + ':caption ending' }).waitFor();
+  delayedCaption.resolve();
+  assert.equal(await caption.textContent(), saved.targetLanguage + ':caption ending', '迟到字幕不得覆盖当前时间点');
+  assert.equal(await captionHost.getByRole('combobox', { name: '字幕目标语言' }).isVisible(), true);
+  await chooseLanguage(captionHost.locator('.target'), 'ja');
+  await caption.filter({ hasText: 'ja:caption ending' }).waitFor();
+  assert.equal(await video.evaluate((element) => element.paused), true, '翻译不得改变播放状态');
+  await captionHost.getByRole('button', { name: '关闭' }).click();
+  await captionHost.waitFor({ state: 'detached' });
+  assert.equal(await video.evaluate((element) => element.textTracks[0].mode), 'disabled');
+  const beforeCaptionSeek = requests.length;
+  await seek(0.4);
+  await articlePage.waitForTimeout(150);
+  assert.equal(requests.length, beforeCaptionSeek, '关闭后拖动播放位置不得发送请求');
+
+  const startPdfRequests = requests.length;
+  const pdfNetwork = [];
+  const recordPdfRequest = (request) => {
+    if (!request.url().startsWith('chrome-extension://')) pdfNetwork.push(request.url());
+  };
+  context.on('request', recordPdfRequest);
+  await panel.locator('summary').filter({ hasText: '翻译本地 PDF' }).click();
+  const pdfFile = panel.locator('#pdf-file');
+  const pdfStatus = panel.locator('#pdf-status');
+  const pdfText = panel.locator('#pdf-text');
+  const usePdf = panel.locator('#pdf-use-selection');
+  await pdfFile.setInputFiles({ name: 'not-a-pdf.pdf', mimeType: 'application/pdf', buffer: Buffer.from('not a PDF') });
+  await pdfStatus.filter({ hasText: '此文件不是 PDF' }).waitFor();
+
+  await pdfFile.setInputFiles({ name: 'scan.pdf', mimeType: 'application/pdf', buffer: scannedPdf });
+  await pdfStatus.filter({ hasText: '扫描件需要 OCR' }).waitFor();
+  assert.equal(await usePdf.isVisible(), false, '扫描件不得提供空文本翻译');
+
+  await pdfFile.setInputFiles({ name: 'local.pdf', mimeType: 'application/pdf', buffer: textualPdf });
+  await pdfStatus.filter({ hasText: '第 1/2 页' }).waitFor({ timeout: 8000 });
+  assert.equal(await pdfText.inputValue(), 'Private first page');
+  await panel.locator('#pdf-page').selectOption('2');
+  assert.equal(await pdfText.inputValue(), pdfSnippet + '\nPrivate second page');
+  assert.equal(await usePdf.isDisabled(), true, '加载时需由用户选择要使用的文字');
+  await pdfText.evaluate((element, length) => {
+    element.focus();
+    element.setSelectionRange(0, length);
+  }, pdfSnippet.length);
+  await waitUntil(async () => await usePdf.isEnabled(), 'PDF 选区可送到翻译工作区');
+  await usePdf.click();
+  assert.equal(await panelSource.inputValue(), pdfSnippet);
+  assert.equal(requests.length, startPdfRequests, '读取及复制 PDF 选区都不能发出 AI 请求');
+  context.off('request', recordPdfRequest);
+  assert.deepEqual(pdfNetwork, [], '本地 PDF 解析只读取已打包资源');
+  assert.equal(await panel.evaluate(async () => JSON.stringify([
+    await chrome.storage.local.get(null), await chrome.storage.session.get(null),
+  ]).includes('Private second page')), false, 'PDF 原文只留在当前侧栏内存');
+
+  await panel.locator('#translate-button').click();
+  await panelResult.waitFor({ state: 'visible' });
+  assert.deepEqual(requests.slice(startPdfRequests).map(({ text }) => text), [pdfSnippet],
+    '用户确认后只可发送所选 PDF 文字');
+  await panel.locator('#pdf-close').click();
+  await pdfText.waitFor({ state: 'hidden' });
+  assert.equal(await pdfText.inputValue(), '', '关闭文档应清除 PDF 预览');
+
+  // The card handoff transferred a temporary Japanese target into this panel.
+  // Clear the preceding result before following the default for these glossary terms.
+  await panelSource.fill('');
+  await panelTarget.selectOption('');
+  assert.equal(await panelTarget.inputValue(), '');
 
   const glossaryToggle = options.locator('#glossary-enabled');
   const glossaryList = options.locator('#glossary-list');
@@ -1246,10 +1655,154 @@ try {
   assert.doesNotMatch(requests[beforeSummaryTerms].instruction, /translation_glossary/);
   await glossaryList.getByRole('button', { name: '删除 north star（简体中文）' }).click();
   await glossaryList.getByText('north star → 极星专名').waitFor({ state: 'detached' });
+  await glossaryToggle.uncheck();
+  await waitUntil(async () => await glossaryStatus.textContent() === '已停用术语库。', '后续服务检测使用普通翻译配置');
 
-  console.log('PASS: 连接检测、模拟授权与保存、侧栏译文、临时目标语言、停止翻译、重试、双窗口选文、页内划词浮层、快捷键翻译、按视口流式翻译和网页重点总结');
-  console.log('Mock POST requests: ' + requests.map((item) => item.text).join(', '));
+  await options.locator('input[name="provider"][value="gemini"]').check();
+  assert.match(await options.locator('#endpoint-help').textContent(), /Gemini.*API/);
+  await options.locator('#endpoint').fill(new URL('/v1beta', endpoint).href);
+  await options.locator('#api-key').fill('local-gemini-test-key');
+  await options.locator('#model').fill('gemini-fixture');
+  await options.locator('#test-connection').click();
+  await options.getByText(/示例译文：「Gemini 连接成功」/).waitFor({ timeout: 6000 });
+  await options.locator('#save-settings').click();
+  await options.getByText('配置已保存。', { exact: true }).waitFor({ timeout: 6000 });
+
+  await panel.locator('#source-text').fill('gemini panel');
+  await panel.locator('#translate-button').click();
+  await panel.locator('#result-text').filter({ hasText: 'Gemini 侧栏译文' }).waitFor({ timeout: 6000 });
+
+  await inlinePage.bringToFront();
+  const geminiSelection = await selectFixtureText(inlinePage, 'inline-first');
+  await triggerContextMenu(worker, inlineTabId, 'translate-selection', geminiSelection);
+  await inlineHost.locator('.result').filter({ hasText: 'Gemini 划词译文' }).waitFor({ timeout: 6000 });
+
+  await articlePage.goto(articleUrl);
+  await articlePage.bringToFront();
+  await triggerContextMenu(worker, articleTab.id, 'translate-page');
+  await pageStatus.getByRole('button', { name: '移除译文' }).waitFor({ timeout: 6000 });
+  assert.equal(await pageTranslations.count(), articleBlocks.length);
+  assert.match(await pageTranslations.first().textContent(), /^Gemini 网页译文 /);
+  await triggerContextMenu(worker, articleTab.id, 'summarize-page');
+  await panel.locator('#page-summary-text').filter({ hasText: 'Gemini 网页总结' }).waitFor({ timeout: 6000 });
+
+  assert.deepEqual(geminiRequests.map(({ operation }) => operation), [
+    'generateContent', 'streamGenerateContent', 'streamGenerateContent', 'streamGenerateContent', 'generateContent',
+  ], '分别验证连接检测、侧栏、划词、整页与总结使用对应 Gemini 端点');
+  for (const request of geminiRequests) {
+    assert.equal(request.apiKey, 'local-gemini-test-key');
+    assert.equal(request.authorization, undefined);
+    assert.ok(request.system);
+    assert.equal(request.query, request.operation === 'streamGenerateContent' ? '?alt=sse' : '');
+  }
+
+  const azureResource = 'https://unit-resource.openai.azure.com';
+  const azureEndpoint = azureResource + '/openai/v1/chat/completions';
+  await options.evaluate((expectedEndpoint) => {
+    // This is a placeholder account. Intercept every call from the options page.
+    globalThis.__azureRequests = [];
+    globalThis.fetch = async (url, init) => {
+      if (url !== expectedEndpoint) throw new Error('Unexpected test service endpoint');
+      globalThis.__azureRequests.push({ url, method: init.method, headers: init.headers, body: JSON.parse(init.body) });
+      return Response.json({ choices: [{ message: { content: 'Azure 示例译文' } }] });
+    };
+  }, azureEndpoint);
+  await options.locator('#new-profile').click();
+  await options.locator('#profile-name').fill('Azure 模拟配置');
+  await options.getByRole('radio', { name: 'Azure OpenAI' }).check();
+  assert.equal(await options.getByLabel('Azure 资源地址', { exact: false }).inputValue(), '');
+  await options.getByLabel('Azure 资源地址', { exact: false }).fill(azureResource);
+  await options.getByLabel('部署名称', { exact: false }).fill('unit-test-deployment');
+  await options.getByLabel('Azure 资源 API Key', { exact: false }).fill('azure-fixture-key');
+  assert.equal(await options.locator('#auth-type').isVisible(), false);
+  await options.locator('#test-connection').click();
+  await options.locator('#form-status[data-tone="success"]').filter({ hasText: /Azure 示例译文.*尚未保存/ }).waitFor();
+  const [azureRequest] = await options.evaluate(() => globalThis.__azureRequests);
+  assert.equal(azureRequest.url, azureEndpoint);
+  assert.equal(azureRequest.method, 'POST');
+  assert.deepEqual(azureRequest.headers, { 'Content-Type': 'application/json', 'api-key': 'azure-fixture-key' });
+  assert.equal(azureRequest.body.model, 'unit-test-deployment');
+  assert.equal(azureRequest.body.messages.at(-1).content, 'Hello, world.');
+  assert.equal(azureRequest.body.stream, false);
+  assert.deepEqual(
+    await options.evaluate(() => globalThis.__permissionRequests.at(-1).origins),
+    [azureResource + '/*'],
+  );
+  await saveTested.click();
+  await options.locator('#form-status[data-tone="success"]').filter({ hasText: '配置已保存' }).waitFor();
+  assert.equal(await options.locator('#endpoint').inputValue(), azureEndpoint);
+  assert.equal(await options.locator('#api-key').inputValue(), '');
+  await options.locator('#endpoint').fill(azureResource + '/openai/v1/');
+  assert.match(await options.locator('#key-status').textContent(), /留空即可沿用/);
+  await options.locator('#endpoint').fill('https://different-resource.openai.azure.com');
+  assert.match(await options.locator('#key-status').textContent(), /请填写新的 API Key/);
+  await options.locator('#activate-profile').click();
+  await options.locator('#form-status[data-tone="success"]').filter({ hasText: '已切换当前 AI 配置' }).waitFor();
+  const activated = await options.evaluate(async () => {
+    const { settings } = await chrome.storage.local.get('settings');
+    return { provider: settings.provider, endpoint: settings.endpoint, authType: settings.authType, model: settings.model };
+  });
+  assert.deepEqual(activated, {
+    provider: 'azure-openai', endpoint: azureEndpoint, authType: 'api-key', model: 'unit-test-deployment',
+  });
+
+  const englishExtension = join(tempDir, 'extension-en');
+  await cp(testExtensionDir, englishExtension, { recursive: true });
+  await mkdir(join(englishExtension, '_locales/en'), { recursive: true });
+  await writeFile(join(englishExtension, '_locales/en/messages.json'), englishMessages);
+  await rm(join(englishExtension, '_locales/zh_CN'), { recursive: true });
+  await writeFile(join(englishExtension, 'manifest.json'), JSON.stringify({ ...testManifest, default_locale: 'en' }));
+  const englishContext = await chromium.launchPersistentContext(join(tempDir, 'profile-en'), {
+    ...browserOptions, args: [
+      '--disable-extensions-except=' + englishExtension, '--load-extension=' + englishExtension,
+    ],
+  });
+  try {
+    const englishWorker = englishContext.serviceWorkers()[0] ||
+      await englishContext.waitForEvent('serviceworker', { timeout: 10000 });
+    const extensionOrigin = 'chrome-extension://' + new URL(englishWorker.url()).host;
+    assert.equal(await englishWorker.evaluate(() => chrome.runtime.getManifest().name), 'TransMate · AI Translation');
+    const englishSettings = await englishContext.newPage();
+    await englishSettings.goto(extensionOrigin + '/options.html');
+    await englishSettings.getByRole('button', { name: 'Test connection' }).waitFor({ timeout: 6000 });
+    assert.equal(await englishSettings.locator('html').getAttribute('lang'), 'en');
+    await englishSettings.getByText('Auto-translation is disabled for all sites.').waitFor({ timeout: 6000 });
+    await englishSettings.getByRole('textbox', { name: 'Site URL' }).waitFor({ timeout: 6000 });
+    await englishSettings.getByRole('checkbox', { name: 'Enable glossary' }).waitFor({ timeout: 6000 });
+    await englishSettings.getByText('No terms saved yet.').waitFor({ timeout: 6000 });
+    await englishSettings.getByRole('radio', { name: 'Azure OpenAI' }).check({ timeout: 6000 });
+    await englishSettings.getByLabel('Azure resource URL', { exact: false }).waitFor({ timeout: 6000 });
+    const englishPanel = await englishContext.newPage();
+    await englishPanel.goto(extensionOrigin + '/sidepanel.html');
+    await englishPanel.getByRole('textbox', { name: 'Text to translate' }).waitFor();
+    await englishPanel.getByRole('button', { name: 'Translate', exact: true }).waitFor();
+    await englishPanel.getByRole('button', { name: 'Translate this page' }).waitFor({ timeout: 6000 });
+    const englishPdf = englishPanel.locator('summary').filter({ hasText: 'Translate a local PDF' });
+    await englishPdf.click({ timeout: 6000 });
+    await englishPanel.getByLabel('Choose a local PDF').setInputFiles({
+      name: 'english.pdf', mimeType: 'application/pdf', buffer: textualPdf,
+    });
+    await englishPanel.getByText('english.pdf · Page 1 of 2').waitFor({ timeout: 8000 });
+    assert.equal(await englishPanel.getByLabel('Text extracted from this page').inputValue(), 'Private first page');
+    await englishPanel.getByRole('button', { name: 'Close document' }).click();
+    await englishPanel.getByLabel('Text extracted from this page').waitFor({ state: 'hidden' });
+    const englishArticle = await englishContext.newPage();
+    await englishArticle.goto(inlineUrl);
+    const englishTab = await englishWorker.evaluate(async (url) =>
+      (await chrome.tabs.query({})).find((candidate) => candidate.url === url)?.id, inlineUrl);
+    const englishSelection = await selectFixtureText(englishArticle, 'inline-first');
+    await triggerContextMenu(englishWorker, englishTab, 'translate-selection', englishSelection);
+    const englishCard = englishArticle.getByRole('dialog', { name: 'TransMate selection translation' });
+    await englishCard.getByRole('button', { name: 'Close translation' }).waitFor();
+    await englishCard.locator('.error').filter({ hasText: 'Enter valid translation settings.' }).waitFor();
+  } finally {
+    await englishContext.close();
+  }
+
+  console.log('PASS: 设置与授权、侧栏与划词操作、长文与流式翻译、整页翻译与总结、自动翻译、字幕、PDF、术语库、Gemini、Azure OpenAI 和英文界面');
+  console.log('Mock POST requests: ' + requests.map(({ text }) => text.length > 300 ? text.slice(0, 80) + '…' : text).join(', '));
 } finally {
+  delayedCaption.resolve();
   releaseSlowResponse?.();
   delayedPageTranslation?.gate.resolve();
   viewportStreamGate?.resolve();
